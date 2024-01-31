@@ -1,30 +1,38 @@
 #include <vulkan/vulkan_raii.hpp>
+#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_shared.hpp>
 #include <GLFW/glfw3.h>
 
 #include <iostream>
 #include <cassert>
 #include <array>
 
-int main() {
-	try {
-		vk::raii::Context context;
+namespace terminal {
+	auto create_instance() {
 		vk::ApplicationInfo applicationInfo("Terminal Emulator", 1, nullptr, 0, VK_API_VERSION_1_3);
 		std::array<const char*, 0> instanceLayers{};
-		std::array<const char*, 2> instanceExtensions{"VK_KHR_surface", "VK_KHR_win32_surface"};
+		std::array<const char*, 2> instanceExtensions{ "VK_KHR_surface", "VK_KHR_win32_surface" };
 		vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo, instanceLayers, instanceExtensions);
-		vk::raii::Instance instance(context, instanceCreateInfo);
+		return vk::SharedInstance{ vk::createInstance(instanceCreateInfo) };
+	}
+	auto select_physical_device(vk::SharedInstance instance) {
+		auto devices = instance->enumeratePhysicalDevices();
+		return devices.front();
+	}
+}
 
-		vk::raii::PhysicalDevices physicalDevices(instance);
+int main() {
+	try {
+		auto instance{ terminal::create_instance() };
 
-		vk::raii::PhysicalDevice physicalDevice = physicalDevices.front();
+		auto physical_device{ terminal::select_physical_device(instance) };
 		uint32_t graphicsQueueFamilyIndex = 0;
-		auto queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+		auto queueFamilyProperties = physical_device.getQueueFamilyProperties();
 		for (int i = 0; i < queueFamilyProperties.size(); i++) {
 			if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) {
 				graphicsQueueFamilyIndex = i;
 			}
 		}
-
 		struct glfwContext
 		{
 			glfwContext()
@@ -51,12 +59,12 @@ int main() {
 		GLFWwindow* window = glfwCreateWindow(width, height, "Terminal Emulator", nullptr, nullptr);
 		VkSurfaceKHR vk_surface;
 		glfwCreateWindowSurface(static_cast<VkInstance>(*instance), window, nullptr, &vk_surface);
-		vk::raii::SurfaceKHR surface(instance, vk_surface);
+		vk::SharedSurfaceKHR surface(vk_surface, instance);
 		uint32_t presentQueueFamilyIndex = graphicsQueueFamilyIndex;
-		if (false == physicalDevice.getSurfaceSupportKHR(graphicsQueueFamilyIndex, *surface)) {
+		if (false == physical_device.getSurfaceSupportKHR(graphicsQueueFamilyIndex, *surface)) {
 			for (int i = 0; i < queueFamilyProperties.size(); i++) {
 				if ((queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) &&
-					physicalDevice.getSurfaceSupportKHR(static_cast<uint32_t>(i), *surface)) {
+					physical_device.getSurfaceSupportKHR(static_cast<uint32_t>(i), *surface)) {
 					presentQueueFamilyIndex = i;
 					break;
 				}
@@ -69,18 +77,20 @@ int main() {
 		std::array<const char*, 1> deviceExtensions{"VK_KHR_swapchain"};
 		vk::DeviceCreateInfo deviceCreateInfo({}, deviceQueueCreateInfo, deviceLayers, deviceExtensions);
 
-		vk::raii::Device device(physicalDevice, deviceCreateInfo);
+		vk::SharedDevice device(physical_device.createDevice(deviceCreateInfo));
 
 		vk::CommandPoolCreateInfo commandPoolCreateInfo({}, graphicsQueueFamilyIndex);
-		vk::raii::CommandPool commandPool(device, commandPoolCreateInfo);
+		vk::SharedCommandPool commandPool(device->createCommandPool(commandPoolCreateInfo), device);
 
 		vk::CommandBufferAllocateInfo commandBufferAllocateInfo(*commandPool, vk::CommandBufferLevel::ePrimary, 1);
-		vk::raii::CommandBuffer commandBuffer = std::move(vk::raii::CommandBuffers(device, commandBufferAllocateInfo).front());
+		auto buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
+		assert(buffers.size() == 1);
+		vk::SharedCommandBuffer commandBuffer{ buffers.front(), device, commandPool};
 
-		std::vector<vk::SurfaceFormatKHR> formats = physicalDevice.getSurfaceFormatsKHR(*surface);
+		std::vector<vk::SurfaceFormatKHR> formats = physical_device.getSurfaceFormatsKHR(*surface);
 		vk::Format format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
 
-		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
+		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physical_device.getSurfaceCapabilitiesKHR(*surface);
 		vk::Extent2D swapchainExtent;
 		if (surfaceCapabilities.currentExtent.width == std::numeric_limits<uint32_t>::max()) {
 			swapchainExtent.width = std::clamp(width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
@@ -126,15 +136,15 @@ int main() {
 			swapchainCreateInfo.pQueueFamilyIndices = queueFamilyIndices.data();
 		}
 
-		vk::raii::SwapchainKHR swapchain{ device, swapchainCreateInfo };
-		std::vector<vk::Image> swapchainImages = swapchain.getImages();
+		vk::SharedSwapchainKHR swapchain{ device->createSwapchainKHR(swapchainCreateInfo), device, surface };
+		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
-		std::vector<vk::raii::ImageView> imageViews;
+		std::vector<vk::SharedImageView> imageViews;
 		imageViews.reserve(swapchainImages.size());
 		vk::ImageViewCreateInfo imageViewCreateInfo({}, {}, vk::ImageViewType::e2D, format, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 		for (auto image : swapchainImages) {
 			imageViewCreateInfo.image = image;
-			imageViews.emplace_back(device, imageViewCreateInfo);
+			imageViews.emplace_back(device->createImageView(imageViewCreateInfo), device);
 		}
 
 		while (false == glfwWindowShouldClose(window)) {
