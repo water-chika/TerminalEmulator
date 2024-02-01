@@ -12,6 +12,9 @@
 #include <ranges>
 #include <filesystem>
 
+#define max max
+#include "spirv_reader.hpp"
+
 template<class T>
 class from_0_count_n {
 public:
@@ -158,6 +161,13 @@ namespace terminal {
 		copy_to_buffer(device, buffer, memory, mem);
 		return std::tuple{ buffer, memory, memory_size };
 	}
+	auto create_vertex_buffer(vk::PhysicalDevice physical_device, vk::Device device, std::span<char> vertices) {
+		auto buffer = create_buffer(device, vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
+		auto [memory, memory_size] = allocate_device_memory(physical_device, device, buffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+		device.bindBufferMemory(buffer, memory, 0);
+		copy_to_buffer(device, buffer, memory, vertices);
+		return std::tuple{ buffer, memory, memory_size };
+	}
 	auto create_pipeline_layout(vk::Device device) {
 		return device.createPipelineLayout(vk::PipelineLayoutCreateInfo{});
 	}
@@ -189,10 +199,45 @@ namespace terminal {
 		vk::RenderPass renderPass = device.createRenderPass(vk::RenderPassCreateInfo(vk::RenderPassCreateFlags(), attachmentDescriptions, subpass));
 		return renderPass;
 	}
-	auto read_spv_file(std::filesystem::path path) {
-
+	auto create_shader_module(vk::Device device, std::filesystem::path path) {
+		spirv_file file{ path };
+		std::span code{ file.data(), file.size() };
+		return device.createShaderModule(vk::ShaderModuleCreateInfo{ {}, code });
 	}
-
+	auto create_framebuffer(vk::Device device, vk::RenderPass render_pass, std::vector<vk::ImageView> attachments, vk::Extent2D extent) {
+		return device.createFramebuffer(vk::FramebufferCreateInfo{ {}, render_pass, attachments, extent.width, extent.height });
+	}
+	struct vertex_stage_info {
+		std::filesystem::path shader_file_path;
+		std::string entry_name;
+		vk::VertexInputBindingDescription input_binding;
+		std::vector<vk::VertexInputAttributeDescription> input_attributes;
+	};
+	auto create_pipeline(vk::Device device, vertex_stage_info vertex_stage, std::filesystem::path fragment_shader,
+		vk::VertexInputBindingDescription, std::vector<vk::VertexInputAttributeDescription> vertex_input_attributeDescriptions) {
+		auto vertex_shader_module = create_shader_module(device, vertex_stage.shader_file_path);
+		auto fragment_shader_module = create_shader_module(device, fragment_shader);
+		std::array<vk::PipelineShaderStageCreateInfo, 2> shader_stage_create_infos = {
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eVertex, vertex_shader_module, vertex_stage.entry_name.c_str()},
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eFragment, fragment_shader_module, "main"},
+		};
+		vk::PipelineVertexInputStateCreateInfo vertex_input_state_create_info{ {}, vertex_stage.input_binding, vertex_stage.input_attributes };
+		vk::PipelineInputAssemblyStateCreateInfo input_assembly_state_create_info{ {}, vk::PrimitiveTopology::eTriangleList };
+		vk::PipelineViewportStateCreateInfo viewport_state_create_info{ {}, 1, nullptr, 1, nullptr };
+		vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info{ {}, false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eNone, vk::FrontFace::eClockwise, false, 0.0f, 0.0f, 0.0f, 1.0f };
+		vk::PipelineMultisampleStateCreateInfo multisample_state_create_info{ {}, vk::SampleCountFlagBits::e1 };
+		vk::StencilOpState stencil_op_state{ vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways };
+		vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_create_info{ {}, true, true, vk::CompareOp::eLessOrEqual, false, false, stencil_op_state, stencil_op_state };
+		vk::PipelineColorBlendAttachmentState color_blend_attachment_state{ false };
+		vk::PipelineColorBlendStateCreateInfo color_blend_state_create_info{ {}, false, vk::LogicOp::eNoOp, color_blend_attachment_state, {{1.0f, 1.0f, 1.0f, 1.0f}} };
+		std::array<vk::DynamicState, 2> dynamic_states = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+		vk::PipelineDynamicStateCreateInfo dynamic_state_create_info{ vk::PipelineDynamicStateCreateFlags{}, dynamic_states };
+		return device.createGraphicsPipeline(nullptr, 
+			vk::GraphicsPipelineCreateInfo{ {}, 
+				shader_stage_create_infos ,&vertex_input_state_create_info, &input_assembly_state_create_info,
+				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info, 
+				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info });
+	}
 }
 
 int main() {
@@ -266,7 +311,7 @@ int main() {
 			vk::ColorSpaceKHR::eSrgbNonlinear,
 			swapchainExtent,
 			1,
-			vk::ImageUsageFlagBits::eColorAttachment,
+			vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc,
 			vk::SharingMode::eExclusive,
 			{},
 			preTransform,
