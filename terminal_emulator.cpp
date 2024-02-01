@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <numeric>
 #include <ranges>
+#include <filesystem>
 
 template<class T>
 class from_0_count_n {
@@ -106,29 +107,92 @@ namespace terminal {
 		return (bitfield & bit) == bit;
 	}
 
-	auto select_memory_type(vk::PhysicalDevice physical_device, vk::Device device, vk::MemoryRequirements requirements) {
+	auto select_memory_type(vk::PhysicalDevice physical_device, vk::Device device, vk::MemoryRequirements requirements, vk::MemoryPropertyFlags properties) {
 		auto memory_properties = physical_device.getMemoryProperties();
 		auto type_bits = requirements.memoryTypeBits;
-		return *std::ranges::find_if(from_0_count_n(memory_properties.memoryTypeCount), [&memory_properties, type_bits](auto i) {
+		return *std::ranges::find_if(from_0_count_n(memory_properties.memoryTypeCount), [&memory_properties, type_bits, properties](auto i) {
 			if ((type_bits & (1 << i)) &&
-				contain_bit(memory_properties.memoryTypes[i].propertyFlags, vk::MemoryPropertyFlagBits::eDeviceLocal)) {
+				contain_bit(memory_properties.memoryTypes[i].propertyFlags, properties)) {
 				return true;
 			}
 			return false;
 			});
 	}
-	auto allocate_device_memory(vk::PhysicalDevice physical_device, vk::Device device, vk::Image image) {
+	auto allocate_device_memory(vk::PhysicalDevice physical_device, vk::Device device, vk::Image image, vk::MemoryPropertyFlags properties) {
 
 		auto memory_requirements = device.getImageMemoryRequirements(image);
-		auto type_index = select_memory_type(physical_device, device, memory_requirements);
-		return device.allocateMemory(vk::MemoryAllocateInfo{ memory_requirements.size, type_index });
+		auto type_index = select_memory_type(physical_device, device, memory_requirements, properties);
+		return std::tuple{ device.allocateMemory(vk::MemoryAllocateInfo{ memory_requirements.size, type_index }), memory_requirements.size };
+	}
+	auto allocate_device_memory(vk::PhysicalDevice physical_device, vk::Device device, vk::Buffer buffer, vk::MemoryPropertyFlags properties) {
+
+		auto memory_requirements = device.getBufferMemoryRequirements(buffer);
+		auto type_index = select_memory_type(physical_device, device, memory_requirements, properties);
+		return std::tuple{ device.allocateMemory(vk::MemoryAllocateInfo{ memory_requirements.size, type_index }), memory_requirements.size };
+	}
+	auto create_image_view(vk::Device device, vk::Image image, vk::ImageViewType type, vk::Format format, vk::ImageAspectFlags aspect) {
+		return device.createImageView(vk::ImageViewCreateInfo{ {}, image, type, format, {}, {aspect, 0, 1, 0, 1} });
 	}
 	auto create_depth_buffer(vk::PhysicalDevice physical_device, vk::Device device, uint32_t width, uint32_t height) {
 		const vk::Format format = vk::Format::eD16Unorm;
 		vk::ImageTiling tiling = select_depth_image_tiling(physical_device, format);
 		auto image = create_image(device, vk::ImageType::e2D, format, vk::Extent2D{ width, height }, tiling, vk::ImageUsageFlagBits::eDepthStencilAttachment);
-		auto memory = allocate_device_memory(physical_device, device, image);
+		auto [memory,memory_size] = allocate_device_memory(physical_device, device, image, vk::MemoryPropertyFlagBits::eDeviceLocal);
+		device.bindImageMemory(image, memory, 0);
+		auto image_view = create_image_view(device, image, vk::ImageViewType::e2D, format, vk::ImageAspectFlagBits::eDepth);
+		return std::tuple{ image, memory, image_view };
 	}
+	auto create_buffer(vk::Device device, size_t size, vk::BufferUsageFlags usages) {
+		return device.createBuffer(vk::BufferCreateInfo{ {}, size, usages });
+	}
+	void copy_to_buffer(vk::Device device, vk::Buffer buffer, vk::DeviceMemory memory, std::span<char> data) {
+		auto memory_requirement = device.getBufferMemoryRequirements(buffer);
+		auto* ptr = static_cast<uint8_t*>(device.mapMemory(memory, 0, memory_requirement.size));
+		std::memcpy(ptr, data.data(), data.size());
+		device.unmapMemory(memory);
+	}
+	auto create_uniform_buffer(vk::PhysicalDevice physical_device, vk::Device device, std::span<char> mem) {
+		auto buffer = create_buffer(device, mem.size(), vk::BufferUsageFlagBits::eUniformBuffer);
+		auto [memory,memory_size] = allocate_device_memory(physical_device, device, buffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+		device.bindBufferMemory(buffer, memory, 0);
+		copy_to_buffer(device, buffer, memory, mem);
+		return std::tuple{ buffer, memory, memory_size };
+	}
+	auto create_pipeline_layout(vk::Device device) {
+		return device.createPipelineLayout(vk::PipelineLayoutCreateInfo{});
+	}
+	auto create_render_pass(vk::Device device, vk::Format colorFormat, vk::Format depthFormat) {
+		std::array<vk::AttachmentDescription, 2> attachmentDescriptions;
+		attachmentDescriptions[0] = vk::AttachmentDescription(vk::AttachmentDescriptionFlags(),
+			colorFormat,
+			vk::SampleCountFlagBits::e1,
+			vk::AttachmentLoadOp::eClear,
+			vk::AttachmentStoreOp::eStore,
+			vk::AttachmentLoadOp::eDontCare,
+			vk::AttachmentStoreOp::eDontCare,
+			vk::ImageLayout::eUndefined,
+			vk::ImageLayout::ePresentSrcKHR);
+		attachmentDescriptions[1] = vk::AttachmentDescription(vk::AttachmentDescriptionFlags(),
+			depthFormat,
+			vk::SampleCountFlagBits::e1,
+			vk::AttachmentLoadOp::eClear,
+			vk::AttachmentStoreOp::eDontCare,
+			vk::AttachmentLoadOp::eDontCare,
+			vk::AttachmentStoreOp::eDontCare,
+			vk::ImageLayout::eUndefined,
+			vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+		vk::AttachmentReference colorReference(0, vk::ImageLayout::eColorAttachmentOptimal);
+		vk::AttachmentReference depthReference(1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+		vk::SubpassDescription  subpass(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorReference, {}, &depthReference);
+
+		vk::RenderPass renderPass = device.createRenderPass(vk::RenderPassCreateInfo(vk::RenderPassCreateFlags(), attachmentDescriptions, subpass));
+		return renderPass;
+	}
+	auto read_spv_file(std::filesystem::path path) {
+
+	}
+
 }
 
 int main() {
