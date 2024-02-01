@@ -274,13 +274,11 @@ int main() {
 		vk::CommandPoolCreateInfo commandPoolCreateInfo({}, graphicsQueueFamilyIndex);
 		vk::SharedCommandPool commandPool(device->createCommandPool(commandPoolCreateInfo), device);
 
-		vk::CommandBufferAllocateInfo commandBufferAllocateInfo(*commandPool, vk::CommandBufferLevel::ePrimary, 1);
-		auto buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
-		assert(buffers.size() == 1);
-		vk::SharedCommandBuffer commandBuffer{ buffers.front(), device, commandPool};
+
 
 		std::vector<vk::SurfaceFormatKHR> formats = physical_device.getSurfaceFormatsKHR(*surface);
-		vk::Format format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
+		vk::Format colorFormat = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
+		vk::Format depthFormat = vk::Format::eD16Unorm;
 
 		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physical_device.getSurfaceCapabilitiesKHR(*surface);
 		vk::Extent2D swapchainExtent;
@@ -307,7 +305,7 @@ int main() {
 		vk::SwapchainCreateInfoKHR swapchainCreateInfo(vk::SwapchainCreateFlagsKHR(),
 			*surface,
 			std::clamp(3u, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount),
-			format,
+			colorFormat,
 			vk::ColorSpaceKHR::eSrgbNonlinear,
 			swapchainExtent,
 			1,
@@ -324,27 +322,49 @@ int main() {
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
 		std::vector<vk::SharedImageView> imageViews;
+		std::vector<vk::UniqueSemaphore> acquire_image_semaphores;
+		std::vector<vk::UniqueSemaphore> render_complete_semaphores;
 		imageViews.reserve(swapchainImages.size());
-		vk::ImageViewCreateInfo imageViewCreateInfo({}, {}, vk::ImageViewType::e2D, format, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+		vk::ImageViewCreateInfo imageViewCreateInfo({}, {}, vk::ImageViewType::e2D, colorFormat, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 		for (auto image : swapchainImages) {
 			imageViewCreateInfo.image = image;
 			imageViews.emplace_back(device->createImageView(imageViewCreateInfo), device);
+			acquire_image_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
+			render_complete_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
 		}
-
-		auto acquire_image_semaphore{ device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}) };
-		auto render_complete_semaphore{ device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}) };
-
-		while (false == glfwWindowShouldClose(window)) {
-			auto image = device->acquireNextImageKHR(*swapchain, 1000000000, *acquire_image_semaphore);
+		vk::CommandBufferAllocateInfo commandBufferAllocateInfo(*commandPool, vk::CommandBufferLevel::ePrimary, swapchainImages.size());
+		auto buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
+		std::vector<vk::SharedCommandBuffer> command_buffers(swapchainImages.size());
+		for (int i = 0; i < swapchainImages.size(); i++){
+			command_buffers[i] = vk::SharedCommandBuffer{ buffers[i], device, commandPool };
 			vk::CommandBufferBeginInfo begin_info{};
-			commandBuffer->begin(begin_info);
-			commandBuffer->end();
+			command_buffers[i]->begin(begin_info);
+			command_buffers[i]->end();
+		}
+		int index = 0;
+		while (false == glfwWindowShouldClose(window)) {
+			index++;
+			if (index >= acquire_image_semaphores.size()) index = 0;
+			auto& acquire_image_semaphore = acquire_image_semaphores[index];
+			auto& render_complete_semaphore = render_complete_semaphores[index];
+			auto& command_buffer = command_buffers[index];
+			auto image_index = device->acquireNextImageKHR(*swapchain, 10000000000, *acquire_image_semaphore).value;
 
-			std::array<vk::Semaphore, 1> wait_semaphores{ *acquire_image_semaphore };
-			std::array<vk::PipelineStageFlags, 1> stages{ vk::PipelineStageFlagBits::eBottomOfPipe };
-			std::array<vk::CommandBuffer, 1> command_buffers{ *commandBuffer };
-			std::array<vk::Semaphore, 1> signal_semaphores{ *render_complete_semaphore };
-			queue->submit(vk::SubmitInfo{wait_semaphores, stages, command_buffers, signal_semaphores});
+			{
+				std::array<vk::Semaphore, 1> wait_semaphores{ *acquire_image_semaphore };
+				std::array<vk::PipelineStageFlags, 1> stages{ vk::PipelineStageFlagBits::eBottomOfPipe };
+				std::array<vk::CommandBuffer, 1> submit_command_buffers{ *command_buffer};
+				std::array<vk::Semaphore, 1> signal_semaphores{ *render_complete_semaphore };
+				queue->submit(vk::SubmitInfo{ wait_semaphores, stages, submit_command_buffers, signal_semaphores });
+			}
+			
+			{
+				std::array<vk::Semaphore, 1> wait_semaphores{ *render_complete_semaphore };
+				std::array<vk::SwapchainKHR, 1> swapchains{ *swapchain };
+				std::array<uint32_t, 1> indices{ image_index };
+				vk::PresentInfoKHR present_info{wait_semaphores, swapchains, indices};
+				queue->presentKHR(present_info);
+			}
 			glfwPollEvents();
 		}
 
