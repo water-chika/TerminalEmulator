@@ -29,8 +29,9 @@ public:
     const uint32_t* data() const {
         return static_cast<const uint32_t*>(mmaped_ptr);
     }
+    // count of spirv code, that is uint32_t.
     size_t size() const {
-        return GetFileSize(hFile, NULL);
+        return GetFileSize(hFile, NULL)/4;
     }
 
 private:

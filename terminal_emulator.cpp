@@ -57,8 +57,8 @@ namespace terminal {
 		vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo, instanceLayers, instanceExtensions);
 		return vk::SharedInstance{ vk::createInstance(instanceCreateInfo) };
 	}
-	auto select_physical_device(vk::SharedInstance instance) {
-		auto devices = instance->enumeratePhysicalDevices();
+	auto select_physical_device(vk::Instance instance) {
+		auto devices = instance.enumeratePhysicalDevices();
 		return devices.front();
 	}
 	auto select_queue_family(vk::PhysicalDevice physical_device) {
@@ -206,7 +206,7 @@ namespace terminal {
 		return device.createShaderModule(vk::ShaderModuleCreateInfo{ {}, code });
 	}
 	auto create_framebuffer(vk::Device device, vk::RenderPass render_pass, std::vector<vk::ImageView> attachments, vk::Extent2D extent) {
-		return device.createFramebuffer(vk::FramebufferCreateInfo{ {}, render_pass, attachments, extent.width, extent.height });
+		return device.createFramebuffer(vk::FramebufferCreateInfo{ {}, render_pass, attachments, extent.width, extent.height, 1 });
 	}
 	struct vertex_stage_info {
 		std::filesystem::path shader_file_path;
@@ -214,7 +214,10 @@ namespace terminal {
 		vk::VertexInputBindingDescription input_binding;
 		std::vector<vk::VertexInputAttributeDescription> input_attributes;
 	};
-	auto create_pipeline(vk::Device device, vertex_stage_info vertex_stage, std::filesystem::path fragment_shader
+	auto create_pipeline(vk::Device device,
+		vertex_stage_info vertex_stage, std::filesystem::path fragment_shader,
+		vk::RenderPass render_pass,
+		vk::PipelineLayout layout
 	) {
 		auto vertex_shader_module = create_shader_module(device, vertex_stage.shader_file_path);
 		auto fragment_shader_module = create_shader_module(device, fragment_shader);
@@ -237,7 +240,47 @@ namespace terminal {
 			vk::GraphicsPipelineCreateInfo{ {}, 
 				shader_stage_create_infos ,&vertex_input_state_create_info, &input_assembly_state_create_info,
 				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info, 
-				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info });
+				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
+	}
+	auto create_swapchain(vk::PhysicalDevice physical_device, vk::Device device, vk::SurfaceKHR surface, uint32_t width, uint32_t height, vk::Format format) {
+		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
+		vk::Extent2D swapchainExtent;
+		if (surfaceCapabilities.currentExtent.width == std::numeric_limits<uint32_t>::max()) {
+			swapchainExtent.width = std::clamp(width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
+			swapchainExtent.height = std::clamp(height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
+		}
+		else {
+			swapchainExtent = surfaceCapabilities.currentExtent;
+		}
+
+		vk::PresentModeKHR swapchainPresentMode = vk::PresentModeKHR::eFifo;
+
+		vk::SurfaceTransformFlagBitsKHR preTransform = (surfaceCapabilities.supportedTransforms & vk::SurfaceTransformFlagBitsKHR::eIdentity)
+			? vk::SurfaceTransformFlagBitsKHR::eIdentity
+			: surfaceCapabilities.currentTransform;
+
+		vk::CompositeAlphaFlagBitsKHR compositeAlpha =
+			(surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePreMultiplied) ? vk::CompositeAlphaFlagBitsKHR::ePreMultiplied
+			: (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePostMultiplied) ? vk::CompositeAlphaFlagBitsKHR::ePostMultiplied
+			: (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eInherit) ? vk::CompositeAlphaFlagBitsKHR::eInherit :
+			vk::CompositeAlphaFlagBitsKHR::eOpaque;
+
+		vk::SwapchainCreateInfoKHR swapchainCreateInfo(vk::SwapchainCreateFlagsKHR(),
+			surface,
+			std::clamp(3u, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount),
+			format,
+			vk::ColorSpaceKHR::eSrgbNonlinear,
+			swapchainExtent,
+			1,
+			vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc,
+			vk::SharingMode::eExclusive,
+			{},
+			preTransform,
+			compositeAlpha,
+			swapchainPresentMode,
+			true,
+			nullptr);
+		return device.createSwapchainKHR(swapchainCreateInfo);
 	}
 }
 
@@ -262,7 +305,7 @@ int main() {
 	try {
 		auto instance{ terminal::create_instance() };
 
-		auto physical_device{ terminal::select_physical_device(instance) };
+		auto physical_device{ terminal::select_physical_device(*instance) };
 		uint32_t graphicsQueueFamilyIndex = terminal::select_queue_family(physical_device);
 
 		uint32_t width = 512, height = 512;
@@ -280,51 +323,17 @@ int main() {
 		std::vector<vk::SurfaceFormatKHR> formats = physical_device.getSurfaceFormatsKHR(*surface);
 		vk::Format color_format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
 		vk::Format depth_format = vk::Format::eD16Unorm;
-
-		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physical_device.getSurfaceCapabilitiesKHR(*surface);
-		vk::Extent2D swapchainExtent;
-		if (surfaceCapabilities.currentExtent.width == std::numeric_limits<uint32_t>::max()) {
-			swapchainExtent.width = std::clamp(width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
-			swapchainExtent.height = std::clamp(height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
-		}
-		else {
-			swapchainExtent = surfaceCapabilities.currentExtent;
-		}
-
-		vk::PresentModeKHR swapchainPresentMode = vk::PresentModeKHR::eFifo;
-
-		vk::SurfaceTransformFlagBitsKHR preTransform = (surfaceCapabilities.supportedTransforms & vk::SurfaceTransformFlagBitsKHR::eIdentity)
-			? vk::SurfaceTransformFlagBitsKHR::eIdentity
-			: surfaceCapabilities.currentTransform;
-
-		vk::CompositeAlphaFlagBitsKHR compositeAlpha =
-			(surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePreMultiplied) ? vk::CompositeAlphaFlagBitsKHR::ePreMultiplied
-			: (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePostMultiplied) ? vk::CompositeAlphaFlagBitsKHR::ePostMultiplied
-			: (surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eInherit) ? vk::CompositeAlphaFlagBitsKHR::eInherit :
-			vk::CompositeAlphaFlagBitsKHR::eOpaque;
-
-		vk::SwapchainCreateInfoKHR swapchainCreateInfo(vk::SwapchainCreateFlagsKHR(),
-			*surface,
-			std::clamp(3u, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount),
-			color_format,
-			vk::ColorSpaceKHR::eSrgbNonlinear,
-			swapchainExtent,
-			1,
-			vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc,
-			vk::SharingMode::eExclusive,
-			{},
-			preTransform,
-			compositeAlpha,
-			swapchainPresentMode,
-			true,
-			nullptr);
+		auto swapchain = vk::SharedSwapchainKHR(terminal::create_swapchain(physical_device, *device, *surface, width, height, color_format), device, surface);
+		
 		terminal::vertex_stage_info vertex_stage_info{
 	"vertex.spv", "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
 	std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
 		};
-		auto pipeline = terminal::create_pipeline(*device, vertex_stage_info, "fragment.spv").value;
+		
 		auto render_pass = terminal::create_render_pass(*device, color_format, depth_format);
-		vk::SharedSwapchainKHR swapchain{ device->createSwapchainKHR(swapchainCreateInfo), device, surface };
+		auto pipeline_layout = terminal::create_pipeline_layout(*device);
+		auto pipeline = terminal::create_pipeline(*device, vertex_stage_info, "fragment.spv", render_pass, pipeline_layout).value;
+
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
 		std::vector<vk::ImageView> imageViews;
@@ -347,7 +356,7 @@ int main() {
 			depth_buffers.emplace_back(depth_buffer);
 			depth_buffer_memories.emplace_back(depth_buffer_memory);
 			depth_buffer_views.emplace_back(depth_buffer_view);
-			framebuffers.emplace_back(terminal::create_framebuffer(*device, render_pass, std::vector{image_view}, {width, height}));
+			framebuffers.emplace_back(terminal::create_framebuffer(*device, render_pass, std::vector{image_view, depth_buffer_view}, {width, height}));
 		}
 		struct vertex { float x, y, z, w; };
 		std::vector<vertex> vertices{
