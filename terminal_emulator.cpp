@@ -196,8 +196,27 @@ namespace terminal {
 		vk::AttachmentReference colorReference(0, vk::ImageLayout::eColorAttachmentOptimal);
 		vk::AttachmentReference depthReference(1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
 		vk::SubpassDescription  subpass(vk::SubpassDescriptionFlags(), vk::PipelineBindPoint::eGraphics, {}, colorReference, {}, &depthReference);
+		vk::PipelineStageFlags depth_buffer_stages = vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
+		std::array<vk::SubpassDependency, 2> dependencies{
+			vk::SubpassDependency()
+			.setSrcSubpass(VK_SUBPASS_EXTERNAL)
+			.setDstSubpass(0)
+			.setSrcStageMask(depth_buffer_stages)
+			.setDstStageMask(depth_buffer_stages)
+			.setSrcAccessMask(vk::AccessFlagBits::eDepthStencilAttachmentWrite)
+			.setDstAccessMask(vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite)
+			.setDependencyFlags(vk::DependencyFlags{}),
+			vk::SubpassDependency()
+			.setSrcSubpass(VK_SUBPASS_EXTERNAL)
+			.setDstSubpass(0)
+			.setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+			.setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+			.setSrcAccessMask(vk::AccessFlagBits{})
+			.setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite | vk::AccessFlagBits::eColorAttachmentRead)
+			.setDependencyFlags(vk::DependencyFlags{}),
+		};
 
-		vk::RenderPass renderPass = device.createRenderPass(vk::RenderPassCreateInfo(vk::RenderPassCreateFlags(), attachmentDescriptions, subpass));
+		vk::RenderPass renderPass = device.createRenderPass(vk::RenderPassCreateInfo(vk::RenderPassCreateFlags(), attachmentDescriptions, subpass).setDependencies(dependencies));
 		return renderPass;
 	}
 	auto create_shader_module(vk::Device device, std::filesystem::path path) {
@@ -282,6 +301,24 @@ namespace terminal {
 			nullptr);
 		return device.createSwapchainKHR(swapchainCreateInfo);
 	}
+	class semaphore_manager {
+	public:
+		semaphore_manager(vk::SharedDevice device) : m_device{ device } {}
+		vk::Semaphore get_unused_semaphore() {
+			if (m_semaphores.size() == 0) {
+				m_semaphores.push_back(m_device->createSemaphore(vk::SemaphoreCreateInfo{}));
+			}
+			auto ret = m_semaphores.back();
+			m_semaphores.pop_back();
+			return ret;
+		}
+		void put_back_semaphore(vk::Semaphore semaphore) {
+			m_semaphores.push_back(semaphore);
+		}
+	private:
+		vk::SharedDevice m_device;
+		std::vector<vk::Semaphore> m_semaphores;
+	};
 }
 
 int main() {
@@ -337,7 +374,7 @@ int main() {
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
 		std::vector<vk::ImageView> imageViews;
-		std::vector<vk::UniqueSemaphore> acquire_image_semaphores;
+		std::vector<vk::Semaphore> acquire_image_semaphores;
 		std::vector<vk::UniqueSemaphore> render_complete_semaphores;
 		std::vector<vk::Image> depth_buffers;
 		std::vector<vk::ImageView> depth_buffer_views;
@@ -349,7 +386,7 @@ int main() {
 			imageViewCreateInfo.image = image;
 			auto image_view = device->createImageView(imageViewCreateInfo);
 			imageViews.emplace_back(image_view);
-			acquire_image_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
+			acquire_image_semaphores.push_back(device->createSemaphore(vk::SemaphoreCreateInfo{}));
 			render_complete_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
 			
 			auto [depth_buffer, depth_buffer_memory, depth_buffer_view] = terminal::create_depth_buffer(physical_device, *device, depth_format, width, height);
@@ -371,7 +408,7 @@ int main() {
 		std::vector<vk::SharedCommandBuffer> command_buffers(swapchainImages.size());
 		for (int i = 0; i < swapchainImages.size(); i++){
 			command_buffers[i] = vk::SharedCommandBuffer{ buffers[i], device, commandPool };
-			vk::CommandBufferBeginInfo begin_info{};
+			vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
 			command_buffers[i]->begin(begin_info);
 			std::array<vk::ClearValue, 2> clear_values;
 			clear_values[0].color = vk::ClearColorValue{ 1, 0,0,1 };
@@ -385,18 +422,18 @@ int main() {
 			command_buffers[i]->endRenderPass();
 			command_buffers[i]->end();
 		}
-		int index = 0;
+
+		terminal::semaphore_manager semaphore_manager{ device };
 		while (false == glfwWindowShouldClose(window)) {
-			index++;
-			if (index >= acquire_image_semaphores.size()) index = 0;
-			auto& acquire_image_semaphore = acquire_image_semaphores[index];
-			auto& render_complete_semaphore = render_complete_semaphores[index];
-			auto& command_buffer = command_buffers[index];
-			auto image_index = device->acquireNextImageKHR(*swapchain, 10000000000, *acquire_image_semaphore).value;
+			auto acquire_image_semaphore = semaphore_manager.get_unused_semaphore();
+			auto image_index = device->acquireNextImageKHR(*swapchain, 10000000000, acquire_image_semaphore).value;
+			
+			auto& render_complete_semaphore = render_complete_semaphores[image_index];
+			auto& command_buffer = command_buffers[image_index];
 
 			{
-				std::array<vk::Semaphore, 1> wait_semaphores{ *acquire_image_semaphore };
-				std::array<vk::PipelineStageFlags, 1> stages{ vk::PipelineStageFlagBits::eBottomOfPipe };
+				std::array<vk::Semaphore, 1> wait_semaphores{ acquire_image_semaphore };
+				std::array<vk::PipelineStageFlags, 1> stages{ vk::PipelineStageFlagBits::eColorAttachmentOutput };
 				std::array<vk::CommandBuffer, 1> submit_command_buffers{ *command_buffer};
 				std::array<vk::Semaphore, 1> signal_semaphores{ *render_complete_semaphore };
 				queue->submit(vk::SubmitInfo{ wait_semaphores, stages, submit_command_buffers, signal_semaphores });
@@ -408,7 +445,7 @@ int main() {
 				std::array<uint32_t, 1> indices{ image_index };
 				vk::PresentInfoKHR present_info{wait_semaphores, swapchains, indices};
 				queue->presentKHR(present_info);
-			}
+			}semaphore_manager.put_back_semaphore(acquire_image_semaphores[image_index]);
 			glfwPollEvents();
 		}
 
