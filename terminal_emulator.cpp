@@ -136,8 +136,7 @@ namespace terminal {
 	auto create_image_view(vk::Device device, vk::Image image, vk::ImageViewType type, vk::Format format, vk::ImageAspectFlags aspect) {
 		return device.createImageView(vk::ImageViewCreateInfo{ {}, image, type, format, {}, {aspect, 0, 1, 0, 1} });
 	}
-	auto create_depth_buffer(vk::PhysicalDevice physical_device, vk::Device device, uint32_t width, uint32_t height) {
-		const vk::Format format = vk::Format::eD16Unorm;
+	auto create_depth_buffer(vk::PhysicalDevice physical_device, vk::Device device, vk::Format format, uint32_t width, uint32_t height) {
 		vk::ImageTiling tiling = select_depth_image_tiling(physical_device, format);
 		auto image = create_image(device, vk::ImageType::e2D, format, vk::Extent2D{ width, height }, tiling, vk::ImageUsageFlagBits::eDepthStencilAttachment);
 		auto [memory,memory_size] = allocate_device_memory(physical_device, device, image, vk::MemoryPropertyFlagBits::eDeviceLocal);
@@ -148,10 +147,11 @@ namespace terminal {
 	auto create_buffer(vk::Device device, size_t size, vk::BufferUsageFlags usages) {
 		return device.createBuffer(vk::BufferCreateInfo{ {}, size, usages });
 	}
-	void copy_to_buffer(vk::Device device, vk::Buffer buffer, vk::DeviceMemory memory, std::span<char> data) {
+	template<class T>
+	void copy_to_buffer(vk::Device device, vk::Buffer buffer, vk::DeviceMemory memory, T data) {
 		auto memory_requirement = device.getBufferMemoryRequirements(buffer);
 		auto* ptr = static_cast<uint8_t*>(device.mapMemory(memory, 0, memory_requirement.size));
-		std::memcpy(ptr, data.data(), data.size());
+		std::memcpy(ptr, data.data(), data.size()*sizeof(data[0]));
 		device.unmapMemory(memory);
 	}
 	auto create_uniform_buffer(vk::PhysicalDevice physical_device, vk::Device device, std::span<char> mem) {
@@ -161,8 +161,9 @@ namespace terminal {
 		copy_to_buffer(device, buffer, memory, mem);
 		return std::tuple{ buffer, memory, memory_size };
 	}
-	auto create_vertex_buffer(vk::PhysicalDevice physical_device, vk::Device device, std::span<char> vertices) {
-		auto buffer = create_buffer(device, vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
+	template<class T>
+	auto create_vertex_buffer(vk::PhysicalDevice physical_device, vk::Device device, T vertices) {
+		auto buffer = create_buffer(device, vertices.size()*sizeof(vertices[0]), vk::BufferUsageFlagBits::eVertexBuffer);
 		auto [memory, memory_size] = allocate_device_memory(physical_device, device, buffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 		device.bindBufferMemory(buffer, memory, 0);
 		copy_to_buffer(device, buffer, memory, vertices);
@@ -213,8 +214,8 @@ namespace terminal {
 		vk::VertexInputBindingDescription input_binding;
 		std::vector<vk::VertexInputAttributeDescription> input_attributes;
 	};
-	auto create_pipeline(vk::Device device, vertex_stage_info vertex_stage, std::filesystem::path fragment_shader,
-		vk::VertexInputBindingDescription, std::vector<vk::VertexInputAttributeDescription> vertex_input_attributeDescriptions) {
+	auto create_pipeline(vk::Device device, vertex_stage_info vertex_stage, std::filesystem::path fragment_shader
+	) {
 		auto vertex_shader_module = create_shader_module(device, vertex_stage.shader_file_path);
 		auto fragment_shader_module = create_shader_module(device, fragment_shader);
 		std::array<vk::PipelineShaderStageCreateInfo, 2> shader_stage_create_infos = {
@@ -277,8 +278,8 @@ int main() {
 
 
 		std::vector<vk::SurfaceFormatKHR> formats = physical_device.getSurfaceFormatsKHR(*surface);
-		vk::Format colorFormat = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
-		vk::Format depthFormat = vk::Format::eD16Unorm;
+		vk::Format color_format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
+		vk::Format depth_format = vk::Format::eD16Unorm;
 
 		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physical_device.getSurfaceCapabilitiesKHR(*surface);
 		vk::Extent2D swapchainExtent;
@@ -305,7 +306,7 @@ int main() {
 		vk::SwapchainCreateInfoKHR swapchainCreateInfo(vk::SwapchainCreateFlagsKHR(),
 			*surface,
 			std::clamp(3u, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount),
-			colorFormat,
+			color_format,
 			vk::ColorSpaceKHR::eSrgbNonlinear,
 			swapchainExtent,
 			1,
@@ -317,21 +318,45 @@ int main() {
 			swapchainPresentMode,
 			true,
 			nullptr);
-
+		terminal::vertex_stage_info vertex_stage_info{
+	"vertex.spv", "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
+	std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
+		};
+		auto pipeline = terminal::create_pipeline(*device, vertex_stage_info, "fragment.spv").value;
+		auto render_pass = terminal::create_render_pass(*device, color_format, depth_format);
 		vk::SharedSwapchainKHR swapchain{ device->createSwapchainKHR(swapchainCreateInfo), device, surface };
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
-		std::vector<vk::SharedImageView> imageViews;
+		std::vector<vk::ImageView> imageViews;
 		std::vector<vk::UniqueSemaphore> acquire_image_semaphores;
 		std::vector<vk::UniqueSemaphore> render_complete_semaphores;
+		std::vector<vk::Image> depth_buffers;
+		std::vector<vk::ImageView> depth_buffer_views;
+		std::vector<vk::DeviceMemory> depth_buffer_memories;
+		std::vector<vk::Framebuffer> framebuffers;
 		imageViews.reserve(swapchainImages.size());
-		vk::ImageViewCreateInfo imageViewCreateInfo({}, {}, vk::ImageViewType::e2D, colorFormat, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+		vk::ImageViewCreateInfo imageViewCreateInfo({}, {}, vk::ImageViewType::e2D, color_format, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 		for (auto image : swapchainImages) {
 			imageViewCreateInfo.image = image;
-			imageViews.emplace_back(device->createImageView(imageViewCreateInfo), device);
+			auto image_view = device->createImageView(imageViewCreateInfo);
+			imageViews.emplace_back(image_view);
 			acquire_image_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
 			render_complete_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
+			
+			auto [depth_buffer, depth_buffer_memory, depth_buffer_view] = terminal::create_depth_buffer(physical_device, *device, depth_format, width, height);
+			depth_buffers.emplace_back(depth_buffer);
+			depth_buffer_memories.emplace_back(depth_buffer_memory);
+			depth_buffer_views.emplace_back(depth_buffer_view);
+			framebuffers.emplace_back(terminal::create_framebuffer(*device, render_pass, std::vector{image_view}, {width, height}));
 		}
+		struct vertex { float x, y, z, w; };
+		std::vector<vertex> vertices{
+			{0,0,0,1},
+			{1,0,0,1},
+			{0,1,0,1},
+		};
+		auto [vertex_buffer, vertex_buffer_memory, vertex_buffer_memory_size] = terminal::create_vertex_buffer(physical_device, *device, vertices);
+
 		vk::CommandBufferAllocateInfo commandBufferAllocateInfo(*commandPool, vk::CommandBufferLevel::ePrimary, swapchainImages.size());
 		auto buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
 		std::vector<vk::SharedCommandBuffer> command_buffers(swapchainImages.size());
@@ -339,6 +364,16 @@ int main() {
 			command_buffers[i] = vk::SharedCommandBuffer{ buffers[i], device, commandPool };
 			vk::CommandBufferBeginInfo begin_info{};
 			command_buffers[i]->begin(begin_info);
+			std::array<vk::ClearValue, 2> clear_values;
+			clear_values[0].color = vk::ClearColorValue{ 1, 0,0,1 };
+			clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
+			vk::RenderPassBeginInfo render_pass_begin_info{ render_pass, framebuffers[i], vk::Rect2D{vk::Offset2D{0,0}, vk::Extent2D{width,height}}, clear_values };
+			command_buffers[i]->beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
+			command_buffers[i]->bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+			command_buffers[i]->bindVertexBuffers(0, vertex_buffer, { 0 });
+			command_buffers[i]->setViewport(0, vk::Viewport(0, 0, width, height, 0, 1));
+			command_buffers[i]->setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(width, height)));
+			command_buffers[i]->endRenderPass();
 			command_buffers[i]->end();
 		}
 		int index = 0;
