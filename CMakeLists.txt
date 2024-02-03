@@ -9,6 +9,7 @@ add_subdirectory(glfw)
 add_executable(terminal_emulator
     terminal_emulator.cpp spirv_reader.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/vertex.spv
+    ${CMAKE_CURRENT_BINARY_DIR}/geometry.spv
     ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv)
 target_link_libraries(terminal_emulator PUBLIC Vulkan::Vulkan glfw)
 set_property(TARGET terminal_emulator PROPERTY CXX_STANDARD 23)
@@ -24,3 +25,4 @@ endfunction()
 
 compile_glsl(vert ${CMAKE_CURRENT_SOURCE_DIR}/vertex.glsl ${CMAKE_CURRENT_BINARY_DIR}/vertex.spv)
 compile_glsl(frag ${CMAKE_CURRENT_SOURCE_DIR}/fragment.glsl ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv)
+compile_glsl(geom ${CMAKE_CURRENT_SOURCE_DIR}/geometry.glsl ${CMAKE_CURRENT_BINARY_DIR}/geometry.spv)

@@ -271,6 +271,45 @@ namespace terminal {
 				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info, 
 				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
 	}
+    struct geometry_stage_info {
+		std::filesystem::path shader_file_path;
+		std::string entry_name;
+    };
+	auto create_pipeline(vk::Device device,
+		vertex_stage_info vertex_stage,
+        geometry_stage_info geometry_stage,
+        std::filesystem::path fragment_shader,
+		vk::RenderPass render_pass,
+		vk::PipelineLayout layout
+	) {
+		auto vertex_shader_module = create_shader_module(device, vertex_stage.shader_file_path);
+        auto geometry_shader_module = create_shader_module(device, geometry_stage.shader_file_path);
+		auto fragment_shader_module = create_shader_module(device, fragment_shader);
+		std::array<vk::PipelineShaderStageCreateInfo, 3> shader_stage_create_infos = {
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eVertex, *vertex_shader_module, vertex_stage.entry_name.c_str()},
+            vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eGeometry, *geometry_shader_module, geometry_stage.entry_name.c_str()},
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eFragment, *fragment_shader_module, "main"},
+		};
+		vk::PipelineVertexInputStateCreateInfo vertex_input_state_create_info{ {}, vertex_stage.input_binding, vertex_stage.input_attributes };
+		vk::PipelineInputAssemblyStateCreateInfo input_assembly_state_create_info{ {}, vk::PrimitiveTopology::eTriangleList };
+		vk::PipelineViewportStateCreateInfo viewport_state_create_info{ {}, 1, nullptr, 1, nullptr };
+		vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info{ {}, false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eNone, vk::FrontFace::eClockwise, false, 0.0f, 0.0f, 0.0f, 1.0f };
+		vk::PipelineMultisampleStateCreateInfo multisample_state_create_info{ {}, vk::SampleCountFlagBits::e1 };
+		vk::StencilOpState stencil_op_state{ vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways };
+		vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_create_info{ {}, true, true, vk::CompareOp::eLessOrEqual, false, false, stencil_op_state, stencil_op_state };
+		std::array<vk::PipelineColorBlendAttachmentState, 1> const color_blend_attachments = {
+		vk::PipelineColorBlendAttachmentState().setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+															  vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA) };
+		vk::PipelineColorBlendStateCreateInfo color_blend_state_create_info{};
+		color_blend_state_create_info.setAttachments(color_blend_attachments);
+		std::array<vk::DynamicState, 2> dynamic_states = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+		vk::PipelineDynamicStateCreateInfo dynamic_state_create_info{ vk::PipelineDynamicStateCreateFlags{}, dynamic_states };
+		return device.createGraphicsPipeline(nullptr, 
+			vk::GraphicsPipelineCreateInfo{ {}, 
+				shader_stage_create_infos ,&vertex_input_state_create_info, &input_assembly_state_create_info,
+				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info, 
+				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
+	}
 	auto create_swapchain(vk::PhysicalDevice physical_device, vk::Device device, vk::SurfaceKHR surface, uint32_t width, uint32_t height, vk::Format format) {
 		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
 		vk::Extent2D swapchainExtent;
@@ -408,14 +447,20 @@ int main() {
 		vk::Format depth_format = vk::Format::eD16Unorm;
 		auto swapchain = vk::SharedSwapchainKHR(terminal::create_swapchain(*physical_device, *device, *surface, width, height, color_format), device, surface);
 		
-		terminal::vertex_stage_info vertex_stage_info{
-	"vertex.spv", "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
-	std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
-		};
-		
 		auto render_pass = vk::SharedRenderPass{ terminal::create_render_pass(*device, color_format, depth_format), device };
 		auto pipeline_layout = vk::SharedPipelineLayout{ terminal::create_pipeline_layout(*device), device };
-		auto pipeline = vk::SharedPipeline{ terminal::create_pipeline(*device, vertex_stage_info, "fragment.spv", *render_pass, *pipeline_layout).value, device };
+
+		terminal::vertex_stage_info vertex_stage_info{
+            "vertex.spv", "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
+            std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
+		};
+        terminal::geometry_stage_info geometry_stage_info{
+            "geometry.spv", "main",
+        };
+		auto pipeline = vk::SharedPipeline{ 
+            terminal::create_pipeline(*device,
+                    vertex_stage_info, geometry_stage_info,
+                    "fragment.spv", *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
@@ -426,18 +471,24 @@ int main() {
 		std::vector<vk::SharedDeviceMemory> depth_buffer_memories;
 		std::vector<vk::SharedFramebuffer> framebuffers;
 		imageViews.reserve(swapchainImages.size());
-		vk::ImageViewCreateInfo imageViewCreateInfo({}, {}, vk::ImageViewType::e2D, color_format, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+		vk::ImageViewCreateInfo imageViewCreateInfo({}, {}, 
+                vk::ImageViewType::e2D, color_format, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 		for (auto image : swapchainImages) {
 			imageViewCreateInfo.image = image;
 			auto image_view = device->createImageView(imageViewCreateInfo);
 			imageViews.emplace_back(vk::SharedImageView{ image_view, device });
 			render_complete_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
 			
-			auto [depth_buffer, depth_buffer_memory, depth_buffer_view] = terminal::create_depth_buffer(*physical_device, *device, depth_format, width, height);
+			auto [depth_buffer, depth_buffer_memory, depth_buffer_view] = 
+                terminal::create_depth_buffer(*physical_device, *device, depth_format, width, height);
 			depth_buffers.emplace_back(vk::SharedImage{ depth_buffer, device });
 			depth_buffer_memories.emplace_back(vk::SharedDeviceMemory{ depth_buffer_memory, device });
 			depth_buffer_views.emplace_back(vk::SharedImageView{ depth_buffer_view, device });
-			framebuffers.emplace_back(vk::SharedFramebuffer{ terminal::create_framebuffer(*device, *render_pass, std::vector{image_view, depth_buffer_view}, {width, height}), device });
+			framebuffers.emplace_back(
+                    vk::SharedFramebuffer{
+                    terminal::create_framebuffer(*device, *render_pass, 
+                            std::vector{image_view, depth_buffer_view}, {width, height}), device
+                    });
 		}
 		struct vertex { float x, y, z, w; };
 		std::vector<vertex> vertices{
@@ -445,7 +496,8 @@ int main() {
 			{1,0,0.5f,1},
 			{0,1,0.5f,1},
 		};
-		auto [vk_vertex_buffer, vk_vertex_buffer_memory, vertex_buffer_memory_size] = terminal::create_vertex_buffer(*physical_device, *device, vertices);
+		auto [vk_vertex_buffer, vk_vertex_buffer_memory, vertex_buffer_memory_size] = 
+            terminal::create_vertex_buffer(*physical_device, *device, vertices);
 		vk::SharedBuffer vertex_buffer{ vk_vertex_buffer, device };
 		vk::SharedDeviceMemory vertex_buffer_memory{ vk_vertex_buffer_memory, device };
 
@@ -473,7 +525,7 @@ int main() {
 		terminal::present_manager present_manager{ device, 10 };
 		while (false == glfwWindowShouldClose(window)) {
 			auto [present_complete_fence, acquire_image_semaphore] = present_manager.get_next();
-			auto image_index = device->acquireNextImageKHR(*swapchain, 10000000000, acquire_image_semaphore).value;
+			auto image_index = device->acquireNextImageKHR(*swapchain, UINT64_MAX, acquire_image_semaphore).value;
 			
 			auto& render_complete_semaphore = render_complete_semaphores[image_index];
 			auto& command_buffer = command_buffers[image_index];
@@ -495,7 +547,6 @@ int main() {
 			}
 			glfwPollEvents();
 		}
-		present_manager.wait_all();
 	}
 	catch (vk::SystemError& err) {
 		std::cout << "vk::SystemError: " << err.what() << std::endl;
