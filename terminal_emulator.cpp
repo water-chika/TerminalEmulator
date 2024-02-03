@@ -278,7 +278,7 @@ namespace terminal {
 		else {
 			swapchainExtent = surfaceCapabilities.currentExtent;
 		}
-        uint32_t min_image_count = surfaceCapabilities.minImageCount;
+        uint32_t min_image_count = std::max(surfaceCapabilities.maxImageCount,surfaceCapabilities.minImageCount);
 
 		vk::PresentModeKHR swapchainPresentMode = vk::PresentModeKHR::eFifo;
 
@@ -310,23 +310,26 @@ namespace terminal {
         assert(swapchainCreateInfo.minImageCount >= surfaceCapabilities.minImageCount);
 		return device.createSwapchainKHR(swapchainCreateInfo);
 	}
-	class semaphore_manager {
+	class present_manager {
 	public:
-		semaphore_manager(vk::SharedDevice device) : m_device{ device } {}
-		vk::Semaphore get_unused_semaphore() {
-			if (m_semaphores.size() == 0) {
-				m_semaphores.push_back(m_device->createSemaphore(vk::SemaphoreCreateInfo{}));
+		present_manager(vk::SharedDevice device, uint32_t count) : m_device{ device }, next_semaphore_index{ 0 } {
+			for (int i = 0; i < count; i++) {
+				m_semaphores.push_back(std::pair{ m_device->createFence(vk::FenceCreateInfo{vk::FenceCreateFlagBits::eSignaled}), m_device->createSemaphore(vk::SemaphoreCreateInfo{}) });
 			}
-			auto ret = m_semaphores.back();
-			m_semaphores.pop_back();
-			return ret;
 		}
-		void put_back_semaphore(vk::Semaphore semaphore) {
-			m_semaphores.push_back(semaphore);
+		auto get_next() {
+			auto [fence, semaphore] = m_semaphores[next_semaphore_index++];
+			if (next_semaphore_index >= m_semaphores.size()) {
+				next_semaphore_index = 0;
+			}
+			m_device->waitForFences(std::array<vk::Fence, 1>{fence}, true, UINT64_MAX);
+			m_device->resetFences(std::array<vk::Fence, 1>{fence});
+			return std::pair{ fence, semaphore };
 		}
 	private:
 		vk::SharedDevice m_device;
-		std::vector<vk::Semaphore> m_semaphores;
+		std::vector<std::pair<vk::Fence, vk::Semaphore>> m_semaphores;
+		uint32_t next_semaphore_index;
 	};
 }
 
@@ -406,9 +409,9 @@ int main() {
 		}
 		struct vertex { float x, y, z, w; };
 		std::vector<vertex> vertices{
-			{0,0,0,1},
-			{1,0,0,1},
-			{0,1,0,1},
+			{0,0,0.5f,1},
+			{1,0,0.5f,1},
+			{0,1,0.5f,1},
 		};
 		auto [vertex_buffer, vertex_buffer_memory, vertex_buffer_memory_size] = terminal::create_vertex_buffer(physical_device, *device, vertices);
 
@@ -420,7 +423,7 @@ int main() {
 			vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
 			command_buffers[i]->begin(begin_info);
 			std::array<vk::ClearValue, 2> clear_values;
-			clear_values[0].color = vk::ClearColorValue{ 1, 0,0,1 };
+			clear_values[0].color = vk::ClearColorValue{ 1.0f, 0.0f,0.0f,1.0f };
 			clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
 			vk::RenderPassBeginInfo render_pass_begin_info{ render_pass, framebuffers[i], vk::Rect2D{vk::Offset2D{0,0}, vk::Extent2D{width,height}}, clear_values };
 			command_buffers[i]->beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
@@ -428,13 +431,14 @@ int main() {
 			command_buffers[i]->bindVertexBuffers(0, vertex_buffer, { 0 });
 			command_buffers[i]->setViewport(0, vk::Viewport(0, 0, width, height, 0, 1));
 			command_buffers[i]->setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(width, height)));
+			command_buffers[i]->draw(3, 1, 0, 0);
 			command_buffers[i]->endRenderPass();
 			command_buffers[i]->end();
 		}
 
-		terminal::semaphore_manager semaphore_manager{ device };
+		terminal::present_manager present_manager{ device, 10 };
 		while (false == glfwWindowShouldClose(window)) {
-			auto acquire_image_semaphore = semaphore_manager.get_unused_semaphore();
+			auto [present_complete_fence, acquire_image_semaphore] = present_manager.get_next();
 			auto image_index = device->acquireNextImageKHR(*swapchain, 10000000000, acquire_image_semaphore).value;
 			
 			auto& render_complete_semaphore = render_complete_semaphores[image_index];
@@ -445,7 +449,7 @@ int main() {
 				std::array<vk::PipelineStageFlags, 1> stages{ vk::PipelineStageFlagBits::eColorAttachmentOutput };
 				std::array<vk::CommandBuffer, 1> submit_command_buffers{ *command_buffer};
 				std::array<vk::Semaphore, 1> signal_semaphores{ *render_complete_semaphore };
-				queue->submit(vk::SubmitInfo{ wait_semaphores, stages, submit_command_buffers, signal_semaphores });
+				queue->submit(vk::SubmitInfo{ wait_semaphores, stages, submit_command_buffers, signal_semaphores }, present_complete_fence);
 			}
 			
 			{
@@ -454,7 +458,7 @@ int main() {
 				std::array<uint32_t, 1> indices{ image_index };
 				vk::PresentInfoKHR present_info{wait_semaphores, swapchains, indices};
 				queue->presentKHR(present_info);
-			}semaphore_manager.put_back_semaphore(acquire_image_semaphores[image_index]);
+			}
 			glfwPollEvents();
 		}
 
