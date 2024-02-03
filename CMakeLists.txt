@@ -10,7 +10,9 @@ add_executable(terminal_emulator
     terminal_emulator.cpp spirv_reader.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/vertex.spv
     ${CMAKE_CURRENT_BINARY_DIR}/geometry.spv
-    ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv)
+    ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv
+    ${CMAKE_CURRENT_BINARY_DIR}/mesh.spv
+)
 target_link_libraries(terminal_emulator PUBLIC Vulkan::Vulkan glfw)
 set_property(TARGET terminal_emulator PROPERTY CXX_STANDARD 23)
 
@@ -22,7 +24,14 @@ add_custom_command(COMMENT "Compiling ${stage} shader"
                     MAIN_DEPENDENCY ${glsl_file}
                     DEPENDS ${glsl_file} Vulkan::glslangValidator)
 endfunction()
+function(compile_glsl_help stage file_name_without_postfix)
+	compile_glsl(${stage}
+		${CMAKE_CURRENT_SOURCE_DIR}/${file_name_without_postfix}.glsl
+		${CMAKE_CURRENT_BINARY_DIR}/${file_name_without_postfix}.spv
+	)
+endfunction()
 
-compile_glsl(vert ${CMAKE_CURRENT_SOURCE_DIR}/vertex.glsl ${CMAKE_CURRENT_BINARY_DIR}/vertex.spv)
-compile_glsl(frag ${CMAKE_CURRENT_SOURCE_DIR}/fragment.glsl ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv)
-compile_glsl(geom ${CMAKE_CURRENT_SOURCE_DIR}/geometry.glsl ${CMAKE_CURRENT_BINARY_DIR}/geometry.spv)
+compile_glsl_help(vert vertex)
+compile_glsl_help(frag fragment)
+compile_glsl_help(geom geometry)
+compile_glsl_help(mesh mesh)
