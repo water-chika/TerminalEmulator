@@ -53,7 +53,14 @@ namespace terminal {
 	auto create_instance() {
 		vk::ApplicationInfo applicationInfo("Terminal Emulator", 1, nullptr, 0, VK_API_VERSION_1_3);
 		std::array<const char*, 0> instanceLayers{};
-		std::array<const char*, 2> instanceExtensions{ "VK_KHR_surface", "VK_KHR_win32_surface" };
+		std::array<const char*, 2> instanceExtensions{ "VK_KHR_surface", 
+#ifdef WIN32
+            "VK_KHR_win32_surface",
+#endif
+#ifdef __unix__
+            "VK_KHR_xcb_surface",
+#endif
+        };
 		vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo, instanceLayers, instanceExtensions);
 		return vk::SharedInstance{ vk::createInstance(instanceCreateInfo) };
 	}
@@ -271,6 +278,7 @@ namespace terminal {
 		else {
 			swapchainExtent = surfaceCapabilities.currentExtent;
 		}
+        uint32_t min_image_count = surfaceCapabilities.minImageCount;
 
 		vk::PresentModeKHR swapchainPresentMode = vk::PresentModeKHR::eFifo;
 
@@ -286,7 +294,7 @@ namespace terminal {
 
 		vk::SwapchainCreateInfoKHR swapchainCreateInfo(vk::SwapchainCreateFlagsKHR(),
 			surface,
-			std::clamp(3u, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount),
+			min_image_count,
 			format,
 			vk::ColorSpaceKHR::eSrgbNonlinear,
 			swapchainExtent,
@@ -299,6 +307,7 @@ namespace terminal {
 			swapchainPresentMode,
 			true,
 			nullptr);
+        assert(swapchainCreateInfo.minImageCount >= surfaceCapabilities.minImageCount);
 		return device.createSwapchainKHR(swapchainCreateInfo);
 	}
 	class semaphore_manager {
