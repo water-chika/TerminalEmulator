@@ -19,7 +19,7 @@ set_property(TARGET terminal_emulator PROPERTY CXX_STANDARD 23)
 function(compile_glsl stage glsl_file spv_file)
 add_custom_command(COMMENT "Compiling ${stage} shader"
                     OUTPUT ${spv_file}
-                    COMMAND Vulkan::glslangValidator -V -S ${stage} -o ${spv_file}
+                    COMMAND Vulkan::glslangValidator -V --target-env vulkan1.3 -S ${stage} -o ${spv_file}
                             ${glsl_file}
                     MAIN_DEPENDENCY ${glsl_file}
                     DEPENDS ${glsl_file} Vulkan::glslangValidator)

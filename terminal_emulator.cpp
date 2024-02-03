@@ -80,7 +80,7 @@ namespace terminal {
 	}
 	auto create_window_and_get_surface(vk::Instance instance, uint32_t width, uint32_t height) {
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		assert(true == glfwVulkanSupported());
+		assert(0 != glfwVulkanSupported());
 		GLFWwindow* window = glfwCreateWindow(width, height, "Terminal Emulator", nullptr, nullptr);
 
 		VkSurfaceKHR surface;
@@ -90,11 +90,17 @@ namespace terminal {
 	auto create_device(vk::PhysicalDevice physical_device, uint32_t graphicsQueueFamilyIndex) {
 		float queuePriority = 0.0f;
 		vk::DeviceQueueCreateInfo deviceQueueCreateInfo({}, graphicsQueueFamilyIndex, 1, &queuePriority);
-		std::array<const char*, 0> deviceLayers{};
-		std::array<const char*, 1> deviceExtensions{ "VK_KHR_swapchain" };
-		vk::DeviceCreateInfo deviceCreateInfo({}, deviceQueueCreateInfo, deviceLayers, deviceExtensions);
-
-		return physical_device.createDevice(deviceCreateInfo);
+		std::array<const char*, 2> deviceExtensions{
+			"VK_KHR_swapchain",
+			"VK_EXT_mesh_shader",
+		};
+		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceMeshShaderFeaturesEXT, vk::PhysicalDeviceMaintenance4Features> device_create_info{
+			vk::DeviceCreateInfo{}.setQueueCreateInfos(deviceQueueCreateInfo).setPEnabledExtensionNames(deviceExtensions),
+			vk::PhysicalDeviceFeatures2{},
+			vk::PhysicalDeviceMeshShaderFeaturesEXT{}.setMeshShader(true),
+			vk::PhysicalDeviceMaintenance4Features{}.setMaintenance4(true),
+		};
+		return physical_device.createDevice(device_create_info.get<vk::DeviceCreateInfo>());
 	}
 	auto select_depth_image_tiling(vk::PhysicalDevice physical_device, vk::Format format) {
 		vk::FormatProperties format_properties = physical_device.getFormatProperties(format);
@@ -234,6 +240,38 @@ namespace terminal {
 	auto create_framebuffer(vk::Device device, vk::RenderPass render_pass, std::vector<vk::ImageView> attachments, vk::Extent2D extent) {
 		return device.createFramebuffer(vk::FramebufferCreateInfo{ {}, render_pass, attachments, extent.width, extent.height, 1 });
 	}
+	struct mesh_stage_info {
+		std::filesystem::path shader_file_path;
+		std::string entry_name;
+	};
+	auto create_pipeline(vk::Device device,
+		mesh_stage_info mesh_stage_info, std::filesystem::path fragment_shader,
+		vk::RenderPass render_pass,
+		vk::PipelineLayout layout) {
+		auto mesh_shader_module = create_shader_module(device, mesh_stage_info.shader_file_path);
+		auto fragment_shader_module = create_shader_module(device, fragment_shader);
+		std::array<vk::PipelineShaderStageCreateInfo, 2> shader_stage_create_infos = {
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eMeshEXT, *mesh_shader_module, mesh_stage_info.entry_name.c_str()},
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eFragment, *fragment_shader_module, "main"},
+		};
+		vk::PipelineViewportStateCreateInfo viewport_state_create_info{ {}, 1, nullptr, 1, nullptr };
+		vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info{ {}, false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eNone, vk::FrontFace::eClockwise, false, 0.0f, 0.0f, 0.0f, 1.0f };
+		vk::PipelineMultisampleStateCreateInfo multisample_state_create_info{ {}, vk::SampleCountFlagBits::e1 };
+		vk::StencilOpState stencil_op_state{ vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways };
+		vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_create_info{ {}, true, true, vk::CompareOp::eLessOrEqual, false, false, stencil_op_state, stencil_op_state };
+		std::array<vk::PipelineColorBlendAttachmentState, 1> const color_blend_attachments = {
+		vk::PipelineColorBlendAttachmentState().setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+															  vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA) };
+		vk::PipelineColorBlendStateCreateInfo color_blend_state_create_info{};
+		color_blend_state_create_info.setAttachments(color_blend_attachments);
+		std::array<vk::DynamicState, 2> dynamic_states = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+		vk::PipelineDynamicStateCreateInfo dynamic_state_create_info{ vk::PipelineDynamicStateCreateFlags{}, dynamic_states };
+		return device.createGraphicsPipeline(nullptr,
+			vk::GraphicsPipelineCreateInfo{ {},
+				shader_stage_create_infos ,nullptr, nullptr,
+				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info,
+				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
+	}
 	struct vertex_stage_info {
 		std::filesystem::path shader_file_path;
 		std::string entry_name;
@@ -364,14 +402,16 @@ namespace terminal {
 			if (next_semaphore_index >= m_semaphores.size()) {
 				next_semaphore_index = 0;
 			}
-			m_device->waitForFences(std::array<vk::Fence, 1>{fence}, true, UINT64_MAX);
+			auto res = m_device->waitForFences(std::array<vk::Fence, 1>{fence}, true, UINT64_MAX);
+			assert(res == vk::Result::eSuccess);
 			m_device->resetFences(std::array<vk::Fence, 1>{fence});
 			return std::pair{ fence, semaphore };
 		}
 		void wait_all() {
 			std::ranges::for_each(m_semaphores, [&m_device=m_device](auto fence_semaphore) {
 				auto [fence, semaphore] = fence_semaphore;
-				m_device->waitForFences(std::array<vk::Fence, 1>{fence}, true, UINT64_MAX);
+				auto res = m_device->waitForFences(std::array<vk::Fence, 1>{fence}, true, UINT64_MAX);
+				assert(res == vk::Result::eSuccess);
 				});
 		}
 		~present_manager() {
@@ -454,12 +494,15 @@ int main() {
             "vertex.spv", "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
             std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
 		};
+		terminal::mesh_stage_info mesh_stage_info{
+			"mesh.spv", "main"
+		};
         terminal::geometry_stage_info geometry_stage_info{
             "geometry.spv", "main",
         };
 		auto pipeline = vk::SharedPipeline{ 
             terminal::create_pipeline(*device,
-                    vertex_stage_info, geometry_stage_info,
+                    mesh_stage_info,
                     "fragment.spv", *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
@@ -504,6 +547,7 @@ int main() {
 		vk::CommandBufferAllocateInfo commandBufferAllocateInfo(*commandPool, vk::CommandBufferLevel::ePrimary, swapchainImages.size());
 		auto buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
 		std::vector<vk::SharedCommandBuffer> command_buffers(swapchainImages.size());
+		vk::DispatchLoaderDynamic dldid(*instance, vkGetInstanceProcAddr, *device);
 		for (int i = 0; i < swapchainImages.size(); i++){
 			command_buffers[i] = vk::SharedCommandBuffer{ buffers[i], device, commandPool };
 			vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
@@ -514,10 +558,11 @@ int main() {
 			vk::RenderPassBeginInfo render_pass_begin_info{ *render_pass, *framebuffers[i], vk::Rect2D{vk::Offset2D{0,0}, vk::Extent2D{width,height}}, clear_values };
 			command_buffers[i]->beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
 			command_buffers[i]->bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
-			command_buffers[i]->bindVertexBuffers(0, *vertex_buffer, { 0 });
+			//command_buffers[i]->bindVertexBuffers(0, *vertex_buffer, { 0 });
 			command_buffers[i]->setViewport(0, vk::Viewport(0, 0, width, height, 0, 1));
 			command_buffers[i]->setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(width, height)));
-			command_buffers[i]->draw(3, 1, 0, 0);
+			//command_buffers[i]->draw(3, 1, 0, 0);
+			command_buffers[i]->drawMeshTasksEXT(2, 1, 1, dldid);
 			command_buffers[i]->endRenderPass();
 			command_buffers[i]->end();
 		}
@@ -543,7 +588,7 @@ int main() {
 				std::array<vk::SwapchainKHR, 1> swapchains{ *swapchain };
 				std::array<uint32_t, 1> indices{ image_index };
 				vk::PresentInfoKHR present_info{wait_semaphores, swapchains, indices};
-				queue->presentKHR(present_info);
+				assert(queue->presentKHR(present_info) == vk::Result::eSuccess);
 			}
 			glfwPollEvents();
 		}
