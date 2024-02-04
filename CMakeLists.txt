@@ -35,3 +35,7 @@ compile_glsl_help(vert vertex)
 compile_glsl_help(frag fragment)
 compile_glsl_help(geom geometry)
 compile_glsl_help(mesh mesh)
+
+add_subdirectory(freetype)
+
+target_link_libraries(terminal_emulator PUBLIC freetype)
