@@ -3,4 +3,4 @@
 	url = https://github.com/glfw/glfw
 [submodule "freetype"]
 	path = freetype
-	url = https://gitlab.freedesk.org/freetype/freetype.git
+	url = https://gitlab.freedesktop.org/freetype/freetype.git
