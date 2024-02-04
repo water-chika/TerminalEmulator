@@ -120,6 +120,11 @@ namespace terminal {
 		vk::ImageCreateInfo create_info{ {}, type, format, vk::Extent3D{extent, 1}, 1, 1, vk::SampleCountFlagBits::e1, tiling, usages };
 		return device.createImage(create_info);
 	}
+	auto create_image(vk::Device device, vk::ImageType type, vk::Format format, vk::Extent2D extent, vk::ImageTiling tiling, vk::ImageUsageFlags usages, vk::ImageLayout layout) {
+		auto create_info = vk::ImageCreateInfo{ {}, type, format, vk::Extent3D{extent, 1}, 1, 1, vk::SampleCountFlagBits::e1, tiling, usages }
+		.setInitialLayout(layout);
+		return device.createImage(create_info);
+	}
 	template<class T, class B>
 	bool contain_bit(T bitfield, B bit) {
 		return (bitfield & bit) == bit;
@@ -159,6 +164,70 @@ namespace terminal {
 		auto image_view = create_image_view(device, image, vk::ImageViewType::e2D, format, vk::ImageAspectFlagBits::eDepth);
 		return std::tuple{ image, memory, image_view };
 	}
+	template<class T>
+	auto create_texture(vk::PhysicalDevice physical_device, vk::Device device, vk::Format format, uint32_t width, uint32_t height, std::span<T> data) {
+		auto image = create_image(device, vk::ImageType::e2D, format, vk::Extent2D{ width, height }, vk::ImageTiling::eLinear, vk::ImageUsageFlagBits::eSampled, vk::ImageLayout::ePreinitialized);
+		auto [memory, memory_size] = allocate_device_memory(physical_device, device, image, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+		device.bindImageMemory(image, memory, 0);
+		{
+			auto const subres = vk::ImageSubresource().setAspectMask(vk::ImageAspectFlagBits::eColor).setMipLevel(0).setArrayLayer(0);
+			vk::SubresourceLayout layout;
+			device.getImageSubresourceLayout(image, &subres, &layout);
+			auto ptr = reinterpret_cast<char*>(device.mapMemory(memory, 0, memory_size));
+			for (int i = 0; i < height; i++) {
+				memcpy(&ptr[layout.offset + i * layout.rowPitch], data.data() + i * width, width);
+			}
+		}
+		device.unmapMemory(memory);
+		auto image_view = create_image_view(device, image, vk::ImageViewType::e2D, format, vk::ImageAspectFlagBits::eColor);
+		return std::tuple{ image, memory, image_view };
+	}
+	void set_image_layout(vk::CommandBuffer cmd,
+		vk::Image image, vk::ImageAspectFlags aspectMask, vk::ImageLayout oldLayout, vk::ImageLayout newLayout,
+		vk::AccessFlags srcAccessMask, vk::PipelineStageFlags src_stages, vk::PipelineStageFlags dest_stages) {
+		auto DstAccessMask = [](vk::ImageLayout const& layout) {
+			vk::AccessFlags flags;
+
+			switch (layout) {
+			case vk::ImageLayout::eTransferDstOptimal:
+				// Make sure anything that was copying from this image has
+				// completed
+				flags = vk::AccessFlagBits::eTransferWrite;
+				break;
+			case vk::ImageLayout::eColorAttachmentOptimal:
+				flags = vk::AccessFlagBits::eColorAttachmentWrite;
+				break;
+			case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+				flags = vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+				break;
+			case vk::ImageLayout::eShaderReadOnlyOptimal:
+				// Make sure any Copy or CPU writes to image are flushed
+				flags = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eInputAttachmentRead;
+				break;
+			case vk::ImageLayout::eTransferSrcOptimal:
+				flags = vk::AccessFlagBits::eTransferRead;
+				break;
+			case vk::ImageLayout::ePresentSrcKHR:
+				flags = vk::AccessFlagBits::eMemoryRead;
+				break;
+			default:
+				break;
+			}
+
+			return flags;
+			};
+
+		cmd.pipelineBarrier(src_stages, dest_stages, vk::DependencyFlagBits(), {}, {},
+			vk::ImageMemoryBarrier()
+			.setSrcAccessMask(srcAccessMask)
+			.setDstAccessMask(DstAccessMask(newLayout))
+			.setOldLayout(oldLayout)
+			.setNewLayout(newLayout)
+			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setImage(image)
+			.setSubresourceRange(vk::ImageSubresourceRange(aspectMask, 0, 1, 0, 1)));
+	}
 	auto create_buffer(vk::Device device, size_t size, vk::BufferUsageFlags usages) {
 		return device.createBuffer(vk::BufferCreateInfo{ {}, size, usages });
 	}
@@ -184,8 +253,8 @@ namespace terminal {
 		copy_to_buffer(device, buffer, memory, vertices);
 		return std::tuple{ buffer, memory, memory_size };
 	}
-	auto create_pipeline_layout(vk::Device device) {
-		return device.createPipelineLayout(vk::PipelineLayoutCreateInfo{});
+	auto create_pipeline_layout(vk::Device device, vk::DescriptorSetLayout descriptor_set_layout) {
+		return device.createPipelineLayout(vk::PipelineLayoutCreateInfo{}.setSetLayouts(descriptor_set_layout));
 	}
 	auto create_render_pass(vk::Device device, vk::Format colorFormat, vk::Format depthFormat) {
 		std::array<vk::AttachmentDescription, 2> attachmentDescriptions;
@@ -473,8 +542,19 @@ int main() {
 			throw std::runtime_error{ "failed to initialize font library" };
 		}
 		FT_Face font_face;
-		if (FT_New_Face(font_library, "C:\\Windows\\Fonts\\Consolas", 0, &font_face)) {
+		if (FT_New_Face(font_library, "C:\\Windows\\Fonts\\consola.ttf", 0, &font_face)) {
 			throw std::runtime_error{ "failed to open font file" };
+		}
+		if (FT_Set_Char_Size(font_face, 0, 16 * 64, 512, 512)) {
+			throw std::runtime_error{ "failed to set font size" };
+		}
+		auto glyph_index = FT_Get_Char_Index(font_face, 'A');
+		assert(glyph_index != 0);
+		if (FT_Load_Glyph(font_face, glyph_index, FT_LOAD_DEFAULT)) {
+			throw std::runtime_error{ "failed to load glyph" };
+		}
+		if (FT_Render_Glyph(font_face->glyph, FT_RENDER_MODE_NORMAL)) {
+			throw std::runtime_error{ "failed to render glyph" };
 		}
 
 
@@ -491,7 +571,8 @@ int main() {
 
 		vk::CommandPoolCreateInfo commandPoolCreateInfo({}, graphicsQueueFamilyIndex);
 		vk::SharedCommandPool commandPool(device->createCommandPool(commandPoolCreateInfo), device);
-
+		vk::SharedCommandBuffer init_command_buffer{ device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*commandPool)).front(), device };
+		init_command_buffer->begin(vk::CommandBufferBeginInfo{});
 
 
 		std::vector<vk::SurfaceFormatKHR> formats = physical_device->getSurfaceFormatsKHR(*surface);
@@ -500,7 +581,13 @@ int main() {
 		auto swapchain = vk::SharedSwapchainKHR(terminal::create_swapchain(*physical_device, *device, *surface, width, height, color_format), device, surface);
 		
 		auto render_pass = vk::SharedRenderPass{ terminal::create_render_pass(*device, color_format, depth_format), device };
-		auto pipeline_layout = vk::SharedPipelineLayout{ terminal::create_pipeline_layout(*device), device };
+		auto descriptor_set_binding = vk::DescriptorSetLayoutBinding{}
+		.setBinding(0)
+			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
+			.setDescriptorCount(1);
+		auto descriptor_set_layout = device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo{}.setBindings(descriptor_set_binding));
+		auto pipeline_layout = vk::SharedPipelineLayout{ terminal::create_pipeline_layout(*device, *descriptor_set_layout), device };
 
 		terminal::vertex_stage_info vertex_stage_info{
             "vertex.spv", "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
@@ -518,6 +605,36 @@ int main() {
                     "fragment.spv", *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
+		auto glyph = font_face->glyph;
+		auto bitmap = &glyph->bitmap;
+		auto [vk_texture, vk_texture_memory, texture_view] = 
+			terminal::create_texture(*physical_device, *device, vk::Format::eR8Unorm, bitmap->pitch, bitmap->rows, std::span{ bitmap->buffer, bitmap->pitch * bitmap->rows });
+		vk::SharedImage texture{
+			vk_texture, device};
+		terminal::set_image_layout(*init_command_buffer, *texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
+			vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits(), vk::PipelineStageFlagBits::eTopOfPipe,
+			vk::PipelineStageFlagBits::eFragmentShader);
+		{
+			auto cmd = *init_command_buffer;
+			cmd.end();
+			auto fence = device->createFenceUnique(vk::FenceCreateInfo{});
+			vk::PipelineStageFlags stages = vk::PipelineStageFlagBits::eTransfer;
+			queue->submit(vk::SubmitInfo{}.setCommandBuffers(cmd), * fence);
+			device->waitForFences(*fence, true, UINT64_MAX);
+		}
+		vk::SharedDeviceMemory texture_memory{ vk_texture_memory, device };
+		auto descriptor_pool_size = vk::DescriptorPoolSize{}.setType(vk::DescriptorType::eCombinedImageSampler).setDescriptorCount(1);
+		auto descriptor_pool = device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo{}.setPoolSizes(descriptor_pool_size).setMaxSets(1));
+		auto descriptor_set = std::move(device->allocateDescriptorSetsUnique(vk::DescriptorSetAllocateInfo{}.setDescriptorPool(*descriptor_pool).setSetLayouts(*descriptor_set_layout)).front());
+		auto sampler = device->createSamplerUnique(vk::SamplerCreateInfo{});
+		auto texture_image_info = vk::DescriptorImageInfo{}.setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setImageView(texture_view).setSampler(*sampler);
+		auto descriptor_set_write =
+			vk::WriteDescriptorSet{}
+			.setDstBinding(0)
+			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+			.setImageInfo(texture_image_info)
+			.setDstSet(*descriptor_set);
+		device->updateDescriptorSets(descriptor_set_write, nullptr);
 
 		std::vector<vk::SharedImageView> imageViews;
 		std::vector<vk::UniqueSemaphore> render_complete_semaphores;
@@ -570,6 +687,7 @@ int main() {
 			vk::RenderPassBeginInfo render_pass_begin_info{ *render_pass, *framebuffers[i], vk::Rect2D{vk::Offset2D{0,0}, vk::Extent2D{width,height}}, clear_values };
 			command_buffers[i]->beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
 			command_buffers[i]->bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
+			command_buffers[i]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline_layout, 0, *descriptor_set, nullptr);
 			//command_buffers[i]->bindVertexBuffers(0, *vertex_buffer, { 0 });
 			command_buffers[i]->setViewport(0, vk::Viewport(0, 0, width, height, 0, 1));
 			command_buffers[i]->setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(width, height)));
