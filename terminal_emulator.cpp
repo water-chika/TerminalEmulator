@@ -2,6 +2,8 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_shared.hpp>
 #include <GLFW/glfw3.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 #include <iostream>
 #include <cassert>
@@ -466,6 +468,16 @@ int main() {
 	};
 	auto glfwCtx = glfwContext{};
 	try {
+		FT_Library font_library;
+		if (FT_Init_FreeType(&font_library)) {
+			throw std::runtime_error{ "failed to initialize font library" };
+		}
+		FT_Face font_face;
+		if (FT_New_Face(font_library, "C:\\Windows\\Fonts\\Consolas", 0, &font_face)) {
+			throw std::runtime_error{ "failed to open font file" };
+		}
+
+
 		auto instance{ terminal::shared::create_instance() };
 
 		auto physical_device{ terminal::shared::select_physical_device(instance) };
