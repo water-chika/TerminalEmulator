@@ -53,8 +53,6 @@ int main() {
 
 		vk::CommandPoolCreateInfo commandPoolCreateInfo({}, graphicsQueueFamilyIndex);
 		vk::SharedCommandPool commandPool(device->createCommandPool(commandPoolCreateInfo), device);
-		vk::SharedCommandBuffer init_command_buffer{ device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*commandPool)).front(), device };
-		init_command_buffer->begin(vk::CommandBufferBeginInfo{});
 
 
 		std::vector<vk::SurfaceFormatKHR> formats = physical_device->getSurfaceFormatsKHR(*surface);
@@ -93,21 +91,26 @@ int main() {
 			terminal::create_texture(*physical_device, *device, vk::Format::eR8Unorm, bitmap->pitch, bitmap->rows, std::span{ bitmap->buffer, bitmap->pitch * bitmap->rows });
 		vk::SharedImage texture{
 			vk_texture, device};
-		terminal::set_image_layout(*init_command_buffer, *texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
-			vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits(), vk::PipelineStageFlagBits::eTopOfPipe,
-			vk::PipelineStageFlagBits::eFragmentShader);
+		vk::SharedImageView shared_texture_view{ texture_view, device };
+		
+		auto texture_prepare_semaphore = device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 		{
-			auto cmd = *init_command_buffer;
+			vk::CommandBuffer init_command_buffer{ device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*commandPool)).front() };
+			init_command_buffer.begin(vk::CommandBufferBeginInfo{});
+			terminal::set_image_layout(init_command_buffer, *texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
+				vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits(), vk::PipelineStageFlagBits::eTopOfPipe,
+				vk::PipelineStageFlagBits::eFragmentShader);
+			auto cmd = init_command_buffer;
 			cmd.end();
-			auto fence = device->createFenceUnique(vk::FenceCreateInfo{});
-			vk::PipelineStageFlags stages = vk::PipelineStageFlagBits::eTransfer;
-			queue->submit(vk::SubmitInfo{}.setCommandBuffers(cmd), * fence);
-			device->waitForFences(*fence, true, UINT64_MAX);
+			auto signal_semaphore = *texture_prepare_semaphore;
+			auto command_submit_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(cmd);
+			auto signal_semaphore_info = vk::SemaphoreSubmitInfo{}.setSemaphore(signal_semaphore).setStageMask(vk::PipelineStageFlagBits2::eTransfer);
+			queue->submit2(vk::SubmitInfo2{}.setCommandBufferInfos(command_submit_info).setSignalSemaphoreInfos(signal_semaphore_info));
 		}
 		vk::SharedDeviceMemory texture_memory{ vk_texture_memory, device };
 		auto descriptor_pool_size = vk::DescriptorPoolSize{}.setType(vk::DescriptorType::eCombinedImageSampler).setDescriptorCount(1);
 		auto descriptor_pool = device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo{}.setPoolSizes(descriptor_pool_size).setMaxSets(1));
-		auto descriptor_set = std::move(device->allocateDescriptorSetsUnique(vk::DescriptorSetAllocateInfo{}.setDescriptorPool(*descriptor_pool).setSetLayouts(*descriptor_set_layout)).front());
+		auto descriptor_set = std::move(device->allocateDescriptorSets(vk::DescriptorSetAllocateInfo{}.setDescriptorPool(*descriptor_pool).setSetLayouts(*descriptor_set_layout)).front());
 		auto sampler = device->createSamplerUnique(vk::SamplerCreateInfo{});
 		auto texture_image_info = vk::DescriptorImageInfo{}.setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setImageView(texture_view).setSampler(*sampler);
 		auto descriptor_set_write =
@@ -115,7 +118,7 @@ int main() {
 			.setDstBinding(0)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 			.setImageInfo(texture_image_info)
-			.setDstSet(*descriptor_set);
+			.setDstSet(descriptor_set);
 		device->updateDescriptorSets(descriptor_set_write, nullptr);
 
 		std::vector<vk::SharedImageView> imageViews;
@@ -157,29 +160,60 @@ int main() {
 
 		vk::CommandBufferAllocateInfo commandBufferAllocateInfo(*commandPool, vk::CommandBufferLevel::ePrimary, swapchainImages.size());
 		auto buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
-		std::vector<vk::SharedCommandBuffer> command_buffers(swapchainImages.size());
+		std::vector<vk::CommandBuffer> command_buffers(swapchainImages.size());
 		vk::DispatchLoaderDynamic dldid(*instance, vkGetInstanceProcAddr, *device);
 		for (int i = 0; i < swapchainImages.size(); i++){
-			command_buffers[i] = vk::SharedCommandBuffer{ buffers[i], device, commandPool };
+			command_buffers[i] = vk::CommandBuffer{ buffers[i] };
+			auto& cmd = command_buffers[i];
 			vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
-			command_buffers[i]->begin(begin_info);
+			cmd.begin(begin_info);
 			std::array<vk::ClearValue, 2> clear_values;
 			clear_values[0].color = vk::ClearColorValue{ 1.0f, 0.0f,0.0f,1.0f };
 			clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
 			vk::RenderPassBeginInfo render_pass_begin_info{ *render_pass, *framebuffers[i], vk::Rect2D{vk::Offset2D{0,0}, vk::Extent2D{width,height}}, clear_values };
-			command_buffers[i]->beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
-			command_buffers[i]->bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
-			command_buffers[i]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline_layout, 0, *descriptor_set, nullptr);
-			//command_buffers[i]->bindVertexBuffers(0, *vertex_buffer, { 0 });
-			command_buffers[i]->setViewport(0, vk::Viewport(0, 0, width, height, 0, 1));
-			command_buffers[i]->setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(width, height)));
-			//command_buffers[i]->draw(3, 1, 0, 0);
-			command_buffers[i]->drawMeshTasksEXT(2, 1, 1, dldid);
-			command_buffers[i]->endRenderPass();
-			command_buffers[i]->end();
+			cmd.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
+			cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
+			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline_layout, 0, descriptor_set, nullptr);
+			//cmd.bindVertexBuffers(0, *vertex_buffer, { 0 });
+			cmd.setViewport(0, vk::Viewport(0, 0, width, height, 0, 1));
+			cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(width, height)));
+			//cmd.draw(3, 1, 0, 0);
+			cmd.drawMeshTasksEXT(2, 1, 1, dldid);
+			cmd.endRenderPass();
+			cmd.end();
 		}
 
 		terminal::present_manager present_manager{ device, 10 };
+		std::ranges::for_each(from_0_count_n(1), [&present_manager, &device, &swapchain, &render_complete_semaphores, &command_buffers, &queue, &texture_prepare_semaphore](auto) {
+			auto [present_complete_fence, acquire_image_semaphore] = present_manager.get_next();
+			auto image_index = device->acquireNextImageKHR(*swapchain, UINT64_MAX, acquire_image_semaphore).value;
+
+			auto& render_complete_semaphore = render_complete_semaphores[image_index];
+			auto& command_buffer = command_buffers[image_index];
+
+			{
+				auto wait_semaphore_infos = std::array{
+					vk::SemaphoreSubmitInfo{}.setSemaphore(acquire_image_semaphore).setStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput),
+					vk::SemaphoreSubmitInfo{}.setSemaphore(*texture_prepare_semaphore).setStageMask(vk::PipelineStageFlagBits2::eAllCommands),
+				};
+				auto submit_cmd_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(command_buffer);
+				auto signal_semaphore_info = vk::SemaphoreSubmitInfo{}.setSemaphore(*render_complete_semaphore).setStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+				queue->submit2(
+					vk::SubmitInfo2{}
+					.setWaitSemaphoreInfos(wait_semaphore_infos)
+					.setCommandBufferInfos(submit_cmd_info)
+					.setSignalSemaphoreInfos(signal_semaphore_info),
+					present_complete_fence);
+			}
+
+			{
+				std::array<vk::Semaphore, 1> wait_semaphores{ *render_complete_semaphore };
+				std::array<vk::SwapchainKHR, 1> swapchains{ *swapchain };
+				std::array<uint32_t, 1> indices{ image_index };
+				vk::PresentInfoKHR present_info{ wait_semaphores, swapchains, indices };
+				assert(queue->presentKHR(present_info) == vk::Result::eSuccess);
+			}
+			});
 		while (false == glfwWindowShouldClose(window)) {
 			auto [present_complete_fence, acquire_image_semaphore] = present_manager.get_next();
 			auto image_index = device->acquireNextImageKHR(*swapchain, UINT64_MAX, acquire_image_semaphore).value;
@@ -188,11 +222,17 @@ int main() {
 			auto& command_buffer = command_buffers[image_index];
 
 			{
-				std::array<vk::Semaphore, 1> wait_semaphores{ acquire_image_semaphore };
-				std::array<vk::PipelineStageFlags, 1> stages{ vk::PipelineStageFlagBits::eColorAttachmentOutput };
-				std::array<vk::CommandBuffer, 1> submit_command_buffers{ *command_buffer};
-				std::array<vk::Semaphore, 1> signal_semaphores{ *render_complete_semaphore };
-				queue->submit(vk::SubmitInfo{ wait_semaphores, stages, submit_command_buffers, signal_semaphores }, present_complete_fence);
+				auto wait_semaphore_infos = std::array{
+					vk::SemaphoreSubmitInfo{}.setSemaphore(acquire_image_semaphore).setStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput),
+				};
+				auto submit_cmd_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(command_buffer);
+				auto signal_semaphore_info = vk::SemaphoreSubmitInfo{}.setSemaphore(*render_complete_semaphore).setStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+				queue->submit2(
+					vk::SubmitInfo2{}
+					.setWaitSemaphoreInfos(wait_semaphore_infos)
+					.setCommandBufferInfos(submit_cmd_info)
+					.setSignalSemaphoreInfos(signal_semaphore_info),
+					present_complete_fence);
 			}
 			
 			{

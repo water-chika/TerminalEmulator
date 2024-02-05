@@ -97,11 +97,12 @@ namespace terminal {
 			"VK_KHR_swapchain",
 			"VK_EXT_mesh_shader",
 		};
-		vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceMeshShaderFeaturesEXT, vk::PhysicalDeviceMaintenance4Features> device_create_info{
+		vk::StructureChain device_create_info{
 			vk::DeviceCreateInfo{}.setQueueCreateInfos(deviceQueueCreateInfo).setPEnabledExtensionNames(deviceExtensions),
 			vk::PhysicalDeviceFeatures2{},
 			vk::PhysicalDeviceMeshShaderFeaturesEXT{}.setMeshShader(true),
 			vk::PhysicalDeviceMaintenance4Features{}.setMaintenance4(true),
+			vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(true),
 		};
 		return physical_device.createDevice(device_create_info.get<vk::DeviceCreateInfo>());
 	}
