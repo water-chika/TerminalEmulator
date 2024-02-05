@@ -52,7 +52,7 @@ private:
 template<class T>
 inline constexpr bool std::ranges::enable_borrowed_range<from_0_count_n<T>> = true;
 
-namespace terminal {
+namespace vulkan {
 	inline auto create_instance() {
 		vk::ApplicationInfo applicationInfo("Terminal Emulator", 1, nullptr, 0, VK_API_VERSION_1_3);
 		std::array<const char*, 0> instanceLayers{};
@@ -502,20 +502,20 @@ namespace terminal {
 	};
 	namespace shared {
 		auto create_instance() {
-			return vk::SharedInstance{ terminal::create_instance() };
+			return vk::SharedInstance{ vulkan::create_instance() };
 		}
 		auto select_physical_device(vk::SharedInstance instance) {
-			return vk::SharedPhysicalDevice{ terminal::select_physical_device(*instance), instance };
+			return vk::SharedPhysicalDevice{ vulkan::select_physical_device(*instance), instance };
 		}
 		auto select_queue_family(vk::SharedPhysicalDevice physical_device) {
-			return terminal::select_queue_family(*physical_device);
+			return vulkan::select_queue_family(*physical_device);
 		}
 		auto create_window_and_get_surface(vk::SharedInstance instance, uint32_t width, uint32_t height) {
-			auto [window, surface] = terminal::create_window_and_get_surface(*instance, width, height);
+			auto [window, surface] = vulkan::create_window_and_get_surface(*instance, width, height);
 			return std::pair{ window, vk::SharedSurfaceKHR{surface, instance} };
 		}
 		auto create_device(vk::SharedPhysicalDevice physical_device, uint32_t graphics_queue_family_index) {
-			return vk::SharedDevice{ terminal::create_device(*physical_device, graphics_queue_family_index)};
+			return vk::SharedDevice{ vulkan::create_device(*physical_device, graphics_queue_family_index)};
 		}
 	}
 }

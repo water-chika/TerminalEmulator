@@ -40,15 +40,15 @@ int main() {
 		}
 
 
-		auto instance{ terminal::shared::create_instance() };
+		auto instance{ vulkan::shared::create_instance() };
 
-		auto physical_device{ terminal::shared::select_physical_device(instance) };
-		uint32_t graphicsQueueFamilyIndex = terminal::shared::select_queue_family(physical_device);
+		auto physical_device{ vulkan::shared::select_physical_device(instance) };
+		uint32_t graphicsQueueFamilyIndex = vulkan::shared::select_queue_family(physical_device);
 
 		uint32_t width = 512, height = 512;
-		auto [window, surface] = terminal::shared::create_window_and_get_surface(instance, width, height);
+		auto [window, surface] = vulkan::shared::create_window_and_get_surface(instance, width, height);
 
-		vk::SharedDevice device{ terminal::shared::create_device(physical_device, graphicsQueueFamilyIndex) };
+		vk::SharedDevice device{ vulkan::shared::create_device(physical_device, graphicsQueueFamilyIndex) };
 		vk::SharedQueue queue{ device->getQueue(graphicsQueueFamilyIndex, 0), device };
 
 		vk::CommandPoolCreateInfo commandPoolCreateInfo({}, graphicsQueueFamilyIndex);
@@ -58,29 +58,29 @@ int main() {
 		std::vector<vk::SurfaceFormatKHR> formats = physical_device->getSurfaceFormatsKHR(*surface);
 		vk::Format color_format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
 		vk::Format depth_format = vk::Format::eD16Unorm;
-		auto swapchain = vk::SharedSwapchainKHR(terminal::create_swapchain(*physical_device, *device, *surface, width, height, color_format), device, surface);
+		auto swapchain = vk::SharedSwapchainKHR(vulkan::create_swapchain(*physical_device, *device, *surface, width, height, color_format), device, surface);
 		
-		auto render_pass = vk::SharedRenderPass{ terminal::create_render_pass(*device, color_format, depth_format), device };
+		auto render_pass = vk::SharedRenderPass{ vulkan::create_render_pass(*device, color_format, depth_format), device };
 		auto descriptor_set_binding = vk::DescriptorSetLayoutBinding{}
 		.setBinding(0)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
 			.setDescriptorCount(1);
 		auto descriptor_set_layout = device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo{}.setBindings(descriptor_set_binding));
-		auto pipeline_layout = vk::SharedPipelineLayout{ terminal::create_pipeline_layout(*device, *descriptor_set_layout), device };
+		auto pipeline_layout = vk::SharedPipelineLayout{ vulkan::create_pipeline_layout(*device, *descriptor_set_layout), device };
 
-		terminal::vertex_stage_info vertex_stage_info{
+		vulkan::vertex_stage_info vertex_stage_info{
             "vertex.spv", "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
             std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
 		};
-		terminal::mesh_stage_info mesh_stage_info{
+		vulkan::mesh_stage_info mesh_stage_info{
 			"mesh.spv", "main"
 		};
-        terminal::geometry_stage_info geometry_stage_info{
+        vulkan::geometry_stage_info geometry_stage_info{
             "geometry.spv", "main",
         };
 		auto pipeline = vk::SharedPipeline{ 
-            terminal::create_pipeline(*device,
+            vulkan::create_pipeline(*device,
                     mesh_stage_info,
                     "fragment.spv", *render_pass, *pipeline_layout).value, device };
 
@@ -88,7 +88,7 @@ int main() {
 		auto glyph = font_face->glyph;
 		auto bitmap = &glyph->bitmap;
 		auto [vk_texture, vk_texture_memory, texture_view] = 
-			terminal::create_texture(*physical_device, *device, vk::Format::eR8Unorm, bitmap->pitch, bitmap->rows, std::span{ bitmap->buffer, bitmap->pitch * bitmap->rows });
+			vulkan::create_texture(*physical_device, *device, vk::Format::eR8Unorm, bitmap->pitch, bitmap->rows, std::span{ bitmap->buffer, bitmap->pitch * bitmap->rows });
 		vk::SharedImage texture{
 			vk_texture, device};
 		vk::SharedImageView shared_texture_view{ texture_view, device };
@@ -97,7 +97,7 @@ int main() {
 		{
 			vk::CommandBuffer init_command_buffer{ device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*commandPool)).front() };
 			init_command_buffer.begin(vk::CommandBufferBeginInfo{});
-			terminal::set_image_layout(init_command_buffer, *texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
+			vulkan::set_image_layout(init_command_buffer, *texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
 				vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits(), vk::PipelineStageFlagBits::eTopOfPipe,
 				vk::PipelineStageFlagBits::eFragmentShader);
 			auto cmd = init_command_buffer;
@@ -137,13 +137,13 @@ int main() {
 			render_complete_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
 			
 			auto [depth_buffer, depth_buffer_memory, depth_buffer_view] = 
-                terminal::create_depth_buffer(*physical_device, *device, depth_format, width, height);
+                vulkan::create_depth_buffer(*physical_device, *device, depth_format, width, height);
 			depth_buffers.emplace_back(vk::SharedImage{ depth_buffer, device });
 			depth_buffer_memories.emplace_back(vk::SharedDeviceMemory{ depth_buffer_memory, device });
 			depth_buffer_views.emplace_back(vk::SharedImageView{ depth_buffer_view, device });
 			framebuffers.emplace_back(
                     vk::SharedFramebuffer{
-                    terminal::create_framebuffer(*device, *render_pass, 
+                    vulkan::create_framebuffer(*device, *render_pass, 
                             std::vector{image_view, depth_buffer_view}, {width, height}), device
                     });
 		}
@@ -154,7 +154,7 @@ int main() {
 			{0,1,0.5f,1},
 		};
 		auto [vk_vertex_buffer, vk_vertex_buffer_memory, vertex_buffer_memory_size] = 
-            terminal::create_vertex_buffer(*physical_device, *device, vertices);
+            vulkan::create_vertex_buffer(*physical_device, *device, vertices);
 		vk::SharedBuffer vertex_buffer{ vk_vertex_buffer, device };
 		vk::SharedDeviceMemory vertex_buffer_memory{ vk_vertex_buffer_memory, device };
 
@@ -183,7 +183,7 @@ int main() {
 			cmd.end();
 		}
 
-		terminal::present_manager present_manager{ device, 10 };
+		vulkan::present_manager present_manager{ device, 10 };
 		std::ranges::for_each(from_0_count_n(1), [&present_manager, &device, &swapchain, &render_complete_semaphores, &command_buffers, &queue, &texture_prepare_semaphore](auto) {
 			auto [present_complete_fence, acquire_image_semaphore] = present_manager.get_next();
 			auto image_index = device->acquireNextImageKHR(*swapchain, UINT64_MAX, acquire_image_semaphore).value;
