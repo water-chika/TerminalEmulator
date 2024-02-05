@@ -1,4 +1,5 @@
 #include "vulkan_render.hpp"
+#include "font_loader.hpp"
 
 int main() {
 	struct glfwContext
@@ -19,27 +20,6 @@ int main() {
 	};
 	auto glfwCtx = glfwContext{};
 	try {
-		FT_Library font_library;
-		if (FT_Init_FreeType(&font_library)) {
-			throw std::runtime_error{ "failed to initialize font library" };
-		}
-		FT_Face font_face;
-		if (FT_New_Face(font_library, "C:\\Windows\\Fonts\\consola.ttf", 0, &font_face)) {
-			throw std::runtime_error{ "failed to open font file" };
-		}
-		if (FT_Set_Char_Size(font_face, 0, 16 * 64, 512, 512)) {
-			throw std::runtime_error{ "failed to set font size" };
-		}
-		auto glyph_index = FT_Get_Char_Index(font_face, 'A');
-		assert(glyph_index != 0);
-		if (FT_Load_Glyph(font_face, glyph_index, FT_LOAD_DEFAULT)) {
-			throw std::runtime_error{ "failed to load glyph" };
-		}
-		if (FT_Render_Glyph(font_face->glyph, FT_RENDER_MODE_NORMAL)) {
-			throw std::runtime_error{ "failed to render glyph" };
-		}
-
-
 		auto instance{ vulkan::shared::create_instance() };
 
 		auto physical_device{ vulkan::shared::select_physical_device(instance) };
@@ -85,8 +65,8 @@ int main() {
                     "fragment.spv", *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
-		auto glyph = font_face->glyph;
-		auto bitmap = &glyph->bitmap;
+		font_loader font_loader{};
+		auto bitmap = font_loader.get_bitmap();
 		auto [vk_texture, vk_texture_memory, texture_view] = 
 			vulkan::create_texture(*physical_device, *device, vk::Format::eR8Unorm, bitmap->pitch, bitmap->rows, std::span{ bitmap->buffer, bitmap->pitch * bitmap->rows });
 		vk::SharedImage texture{

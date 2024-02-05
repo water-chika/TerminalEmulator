@@ -3,8 +3,6 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_shared.hpp>
 #include <GLFW/glfw3.h>
-#include <ft2build.h>
-#include FT_FREETYPE_H
 
 #include <iostream>
 #include <cassert>
