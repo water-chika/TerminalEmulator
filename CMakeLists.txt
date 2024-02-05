@@ -7,7 +7,9 @@ find_package(Vulkan REQUIRED)
 add_subdirectory(glfw)
 
 add_executable(terminal_emulator
-    terminal_emulator.cpp spirv_reader.hpp
+    terminal_emulator.cpp
+    vulkan_render.hpp
+    spirv_reader.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/vertex.spv
     ${CMAKE_CURRENT_BINARY_DIR}/geometry.spv
     ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv
