@@ -11,11 +11,15 @@ add_executable(terminal_emulator
     vulkan_render.hpp
     spirv_reader.hpp
     font_loader.hpp
+    ${CMAKE_CURRENT_BINARY_DIR}/include/shader_path.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/vertex.spv
     ${CMAKE_CURRENT_BINARY_DIR}/geometry.spv
     ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv
     ${CMAKE_CURRENT_BINARY_DIR}/mesh.spv
 )
+target_include_directories(
+    terminal_emulator
+    PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_link_libraries(terminal_emulator PUBLIC Vulkan::Vulkan glfw)
 set_property(TARGET terminal_emulator PROPERTY CXX_STANDARD 23)
 
@@ -32,12 +36,21 @@ function(compile_glsl_help stage file_name_without_postfix)
 		${CMAKE_CURRENT_SOURCE_DIR}/${file_name_without_postfix}.glsl
 		${CMAKE_CURRENT_BINARY_DIR}/${file_name_without_postfix}.spv
 	)
+    set(
+        ${file_name_without_postfix}_path
+        "${CMAKE_CURRENT_BINARY_DIR}/${file_name_without_postfix}.spv"
+        PARENT_SCOPE
+    )
 endfunction()
 
 compile_glsl_help(vert vertex)
 compile_glsl_help(frag fragment)
 compile_glsl_help(geom geometry)
 compile_glsl_help(mesh mesh)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/template/shader_path.hpp
+    ${CMAKE_CURRENT_BINARY_DIR}/include/shader_path.hpp
+)
 
 add_subdirectory(freetype)
 

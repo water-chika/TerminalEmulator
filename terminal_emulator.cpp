@@ -1,5 +1,6 @@
 #include "vulkan_render.hpp"
 #include "font_loader.hpp"
+#include "shader_path.hpp"
 
 class simple_draw_command{
 public:
@@ -91,19 +92,19 @@ int main() {
 		auto pipeline_layout = vk::SharedPipelineLayout{ vulkan::create_pipeline_layout(*device, *descriptor_set_layout), device };
 
 		vulkan::vertex_stage_info vertex_stage_info{
-            "vertex.spv", "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
+            vertex_path, "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
             std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
 		};
 		vulkan::mesh_stage_info mesh_stage_info{
-			"mesh.spv", "main"
+			mesh_path, "main"
 		};
         vulkan::geometry_stage_info geometry_stage_info{
-            "geometry.spv", "main",
+            geometry_path, "main",
         };
 		auto pipeline = vk::SharedPipeline{ 
             vulkan::create_pipeline(*device,
                     mesh_stage_info,
-                    "fragment.spv", *render_pass, *pipeline_layout).value, device };
+                    fragment_path, *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 		font_loader font_loader{};
