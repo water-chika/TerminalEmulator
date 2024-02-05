@@ -1,6 +1,47 @@
 #include "vulkan_render.hpp"
 #include "font_loader.hpp"
 
+class simple_draw_command{
+public:
+    simple_draw_command(
+		vk::CommandBuffer cmd,
+		vk::RenderPass render_pass,
+		vk::PipelineLayout pipeline_layout,
+		vk::Pipeline pipeline,
+		vk::DescriptorSet descriptor_set,
+		vk::Framebuffer framebuffer,
+		uint32_t width, uint32_t height,
+		vk::DispatchLoaderDynamic dldid)
+		: m_cmd{ cmd } {
+			vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
+			cmd.begin(begin_info);
+			std::array<vk::ClearValue, 2> clear_values;
+			clear_values[0].color = vk::ClearColorValue{ 1.0f, 0.0f,0.0f,1.0f };
+			clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
+			vk::RenderPassBeginInfo render_pass_begin_info{
+				render_pass, framebuffer,
+				vk::Rect2D{vk::Offset2D{0,0},
+				vk::Extent2D{width,height}}, clear_values };
+			cmd.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
+			cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
+				pipeline);
+			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+				pipeline_layout, 0, descriptor_set, nullptr);
+			//cmd.bindVertexBuffers(0, *vertex_buffer, { 0 });
+			cmd.setViewport(0, vk::Viewport(0, 0, width, height, 0, 1));
+			cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(width, height)));
+			//cmd.draw(3, 1, 0, 0);
+			cmd.drawMeshTasksEXT(2, 1, 1, dldid);
+			cmd.endRenderPass();
+			cmd.end();
+	}
+	auto get_command_buffer() {
+		return m_cmd;
+	}
+private:
+    vk::CommandBuffer m_cmd;
+};
+
 int main() {
 	struct glfwContext
 	{
@@ -143,24 +184,8 @@ int main() {
 		std::vector<vk::CommandBuffer> command_buffers(swapchainImages.size());
 		vk::DispatchLoaderDynamic dldid(*instance, vkGetInstanceProcAddr, *device);
 		for (int i = 0; i < swapchainImages.size(); i++){
-			command_buffers[i] = vk::CommandBuffer{ buffers[i] };
-			auto& cmd = command_buffers[i];
-			vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
-			cmd.begin(begin_info);
-			std::array<vk::ClearValue, 2> clear_values;
-			clear_values[0].color = vk::ClearColorValue{ 1.0f, 0.0f,0.0f,1.0f };
-			clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
-			vk::RenderPassBeginInfo render_pass_begin_info{ *render_pass, *framebuffers[i], vk::Rect2D{vk::Offset2D{0,0}, vk::Extent2D{width,height}}, clear_values };
-			cmd.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
-			cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
-			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline_layout, 0, descriptor_set, nullptr);
-			//cmd.bindVertexBuffers(0, *vertex_buffer, { 0 });
-			cmd.setViewport(0, vk::Viewport(0, 0, width, height, 0, 1));
-			cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(width, height)));
-			//cmd.draw(3, 1, 0, 0);
-			cmd.drawMeshTasksEXT(2, 1, 1, dldid);
-			cmd.endRenderPass();
-			cmd.end();
+			simple_draw_command draw_command{ buffers[i], *render_pass, *pipeline_layout, *pipeline, descriptor_set, *framebuffers[i], width, height, dldid };
+			command_buffers[i] = draw_command.get_command_buffer();
 		}
 
 		vulkan::present_manager present_manager{ device, 10 };
