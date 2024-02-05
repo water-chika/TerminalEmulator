@@ -43,25 +43,28 @@ private:
     vk::CommandBuffer m_cmd;
 };
 
-int main() {
-	struct glfwContext
+struct glfwContext
+{
+	glfwContext()
 	{
-		glfwContext()
-		{
-			glfwInit();
-			glfwSetErrorCallback(
-				[](int error, const char* msg)
-				{
-					std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl;
-				}
-			);
-		}
-		~glfwContext() {
-			glfwTerminate();
-		}
-	};
-	auto glfwCtx = glfwContext{};
-	try {
+		glfwInit();
+		glfwSetErrorCallback(
+			[](int error, const char* msg)
+			{
+				std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl;
+			}
+		);
+	}
+	~glfwContext() {
+		glfwTerminate();
+	}
+};
+
+class vulkan_render {
+public:
+	vulkan_render() {
+	}
+	void run() {
 		auto instance{ vulkan::shared::create_instance() };
 
 		auto physical_device{ vulkan::shared::select_physical_device(instance) };
@@ -81,10 +84,10 @@ int main() {
 		vk::Format color_format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
 		vk::Format depth_format = vk::Format::eD16Unorm;
 		auto swapchain = vk::SharedSwapchainKHR(vulkan::create_swapchain(*physical_device, *device, *surface, width, height, color_format), device, surface);
-		
+
 		auto render_pass = vk::SharedRenderPass{ vulkan::create_render_pass(*device, color_format, depth_format), device };
 		auto descriptor_set_binding = vk::DescriptorSetLayoutBinding{}
-		.setBinding(0)
+			.setBinding(0)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
 			.setDescriptorCount(1);
@@ -92,29 +95,29 @@ int main() {
 		auto pipeline_layout = vk::SharedPipelineLayout{ vulkan::create_pipeline_layout(*device, *descriptor_set_layout), device };
 
 		vulkan::vertex_stage_info vertex_stage_info{
-            vertex_path, "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
-            std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
+			vertex_path, "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
+			std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
 		};
 		vulkan::mesh_stage_info mesh_stage_info{
 			mesh_path, "main"
 		};
-        vulkan::geometry_stage_info geometry_stage_info{
-            geometry_path, "main",
-        };
-		auto pipeline = vk::SharedPipeline{ 
-            vulkan::create_pipeline(*device,
-                    mesh_stage_info,
-                    fragment_path, *render_pass, *pipeline_layout).value, device };
+		vulkan::geometry_stage_info geometry_stage_info{
+			geometry_path, "main",
+		};
+		auto pipeline = vk::SharedPipeline{
+			vulkan::create_pipeline(*device,
+					mesh_stage_info,
+					fragment_path, *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 		font_loader font_loader{};
 		auto bitmap = font_loader.get_bitmap();
-		auto [vk_texture, vk_texture_memory, texture_view] = 
+		auto [vk_texture, vk_texture_memory, texture_view] =
 			vulkan::create_texture(*physical_device, *device, vk::Format::eR8Unorm, bitmap->pitch, bitmap->rows, std::span{ bitmap->buffer, bitmap->pitch * bitmap->rows });
 		vk::SharedImage texture{
-			vk_texture, device};
+			vk_texture, device };
 		vk::SharedImageView shared_texture_view{ texture_view, device };
-		
+
 		auto texture_prepare_semaphore = device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 		{
 			vk::CommandBuffer init_command_buffer{ device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*commandPool)).front() };
@@ -150,24 +153,24 @@ int main() {
 		std::vector<vk::SharedDeviceMemory> depth_buffer_memories;
 		std::vector<vk::SharedFramebuffer> framebuffers;
 		imageViews.reserve(swapchainImages.size());
-		vk::ImageViewCreateInfo imageViewCreateInfo({}, {}, 
-                vk::ImageViewType::e2D, color_format, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+		vk::ImageViewCreateInfo imageViewCreateInfo({}, {},
+			vk::ImageViewType::e2D, color_format, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
 		for (auto image : swapchainImages) {
 			imageViewCreateInfo.image = image;
 			auto image_view = device->createImageView(imageViewCreateInfo);
 			imageViews.emplace_back(vk::SharedImageView{ image_view, device });
 			render_complete_semaphores.push_back(device->createSemaphoreUnique(vk::SemaphoreCreateInfo{}));
-			
-			auto [depth_buffer, depth_buffer_memory, depth_buffer_view] = 
-                vulkan::create_depth_buffer(*physical_device, *device, depth_format, width, height);
+
+			auto [depth_buffer, depth_buffer_memory, depth_buffer_view] =
+				vulkan::create_depth_buffer(*physical_device, *device, depth_format, width, height);
 			depth_buffers.emplace_back(vk::SharedImage{ depth_buffer, device });
 			depth_buffer_memories.emplace_back(vk::SharedDeviceMemory{ depth_buffer_memory, device });
 			depth_buffer_views.emplace_back(vk::SharedImageView{ depth_buffer_view, device });
 			framebuffers.emplace_back(
-                    vk::SharedFramebuffer{
-                    vulkan::create_framebuffer(*device, *render_pass, 
-                            std::vector{image_view, depth_buffer_view}, {width, height}), device
-                    });
+				vk::SharedFramebuffer{
+				vulkan::create_framebuffer(*device, *render_pass,
+						std::vector{image_view, depth_buffer_view}, {width, height}), device
+				});
 		}
 		struct vertex { float x, y, z, w; };
 		std::vector<vertex> vertices{
@@ -175,8 +178,8 @@ int main() {
 			{1,0,0.5f,1},
 			{0,1,0.5f,1},
 		};
-		auto [vk_vertex_buffer, vk_vertex_buffer_memory, vertex_buffer_memory_size] = 
-            vulkan::create_vertex_buffer(*physical_device, *device, vertices);
+		auto [vk_vertex_buffer, vk_vertex_buffer_memory, vertex_buffer_memory_size] =
+			vulkan::create_vertex_buffer(*physical_device, *device, vertices);
 		vk::SharedBuffer vertex_buffer{ vk_vertex_buffer, device };
 		vk::SharedDeviceMemory vertex_buffer_memory{ vk_vertex_buffer_memory, device };
 
@@ -184,10 +187,11 @@ int main() {
 		auto buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
 		std::vector<vk::CommandBuffer> command_buffers(swapchainImages.size());
 		vk::DispatchLoaderDynamic dldid(*instance, vkGetInstanceProcAddr, *device);
-		for (int i = 0; i < swapchainImages.size(); i++){
+		for (int i = 0; i < swapchainImages.size(); i++) {
 			simple_draw_command draw_command{ buffers[i], *render_pass, *pipeline_layout, *pipeline, descriptor_set, *framebuffers[i], width, height, dldid };
 			command_buffers[i] = draw_command.get_command_buffer();
 		}
+
 
 		vulkan::present_manager present_manager{ device, 10 };
 		std::ranges::for_each(from_0_count_n(1), [&present_manager, &device, &swapchain, &render_complete_semaphores, &command_buffers, &queue, &texture_prepare_semaphore](auto) {
@@ -223,7 +227,7 @@ int main() {
 		while (false == glfwWindowShouldClose(window)) {
 			auto [present_complete_fence, acquire_image_semaphore] = present_manager.get_next();
 			auto image_index = device->acquireNextImageKHR(*swapchain, UINT64_MAX, acquire_image_semaphore).value;
-			
+
 			auto& render_complete_semaphore = render_complete_semaphores[image_index];
 			auto& command_buffer = command_buffers[image_index];
 
@@ -240,16 +244,34 @@ int main() {
 					.setSignalSemaphoreInfos(signal_semaphore_info),
 					present_complete_fence);
 			}
-			
+
 			{
 				std::array<vk::Semaphore, 1> wait_semaphores{ *render_complete_semaphore };
 				std::array<vk::SwapchainKHR, 1> swapchains{ *swapchain };
 				std::array<uint32_t, 1> indices{ image_index };
-				vk::PresentInfoKHR present_info{wait_semaphores, swapchains, indices};
+				vk::PresentInfoKHR present_info{ wait_semaphores, swapchains, indices };
 				assert(queue->presentKHR(present_info) == vk::Result::eSuccess);
 			}
 			glfwPollEvents();
 		}
+	}
+private:
+	glfwContext m_glfw_context;
+};
+
+class terminal_emulator {
+public:
+	void run() {
+		m_render.run();
+	}
+private:
+	vulkan_render m_render;
+};
+
+int main() {
+	try {
+		terminal_emulator emulator;
+		emulator.run();
 	}
 	catch (vk::SystemError& err) {
 		std::cout << "vk::SystemError: " << err.what() << std::endl;
