@@ -194,36 +194,8 @@ public:
 
 
 		vulkan::present_manager present_manager{ device, 10 };
-		std::ranges::for_each(from_0_count_n(1), [&present_manager, &device, &swapchain, &render_complete_semaphores, &command_buffers, &queue, &texture_prepare_semaphore](auto) {
-			auto [present_complete_fence, acquire_image_semaphore] = present_manager.get_next();
-			auto image_index = device->acquireNextImageKHR(*swapchain, UINT64_MAX, acquire_image_semaphore).value;
-
-			auto& render_complete_semaphore = render_complete_semaphores[image_index];
-			auto& command_buffer = command_buffers[image_index];
-
-			{
-				auto wait_semaphore_infos = std::array{
-					vk::SemaphoreSubmitInfo{}.setSemaphore(acquire_image_semaphore).setStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput),
-					vk::SemaphoreSubmitInfo{}.setSemaphore(*texture_prepare_semaphore).setStageMask(vk::PipelineStageFlagBits2::eAllCommands),
-				};
-				auto submit_cmd_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(command_buffer);
-				auto signal_semaphore_info = vk::SemaphoreSubmitInfo{}.setSemaphore(*render_complete_semaphore).setStageMask(vk::PipelineStageFlagBits2::eAllCommands);
-				queue->submit2(
-					vk::SubmitInfo2{}
-					.setWaitSemaphoreInfos(wait_semaphore_infos)
-					.setCommandBufferInfos(submit_cmd_info)
-					.setSignalSemaphoreInfos(signal_semaphore_info),
-					present_complete_fence);
-			}
-
-			{
-				std::array<vk::Semaphore, 1> wait_semaphores{ *render_complete_semaphore };
-				std::array<vk::SwapchainKHR, 1> swapchains{ *swapchain };
-				std::array<uint32_t, 1> indices{ image_index };
-				vk::PresentInfoKHR present_info{ wait_semaphores, swapchains, indices };
-				assert(queue->presentKHR(present_info) == vk::Result::eSuccess);
-			}
-			});
+		// There should be some commands wait for texture load semaphore.
+		// There will be a BUG, fix it!
 		while (false == glfwWindowShouldClose(window)) {
 			auto reused_acquire_image_semaphore = present_manager.get_next();
 			auto image_index = device->acquireNextImageKHR(
