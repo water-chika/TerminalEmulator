@@ -225,15 +225,19 @@ public:
 			}
 			});
 		while (false == glfwWindowShouldClose(window)) {
-			auto [present_complete_fence, acquire_image_semaphore] = present_manager.get_next();
-			auto image_index = device->acquireNextImageKHR(*swapchain, UINT64_MAX, acquire_image_semaphore).value;
+			auto reused_acquire_image_semaphore = present_manager.get_next();
+			auto image_index = device->acquireNextImageKHR(
+				*swapchain, UINT64_MAX,
+				reused_acquire_image_semaphore.semaphore).value;
 
 			auto& render_complete_semaphore = render_complete_semaphores[image_index];
 			auto& command_buffer = command_buffers[image_index];
 
 			{
 				auto wait_semaphore_infos = std::array{
-					vk::SemaphoreSubmitInfo{}.setSemaphore(acquire_image_semaphore).setStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput),
+					vk::SemaphoreSubmitInfo{}
+					.setSemaphore(reused_acquire_image_semaphore.semaphore)
+					.setStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput),
 				};
 				auto submit_cmd_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(command_buffer);
 				auto signal_semaphore_info = vk::SemaphoreSubmitInfo{}.setSemaphore(*render_complete_semaphore).setStageMask(vk::PipelineStageFlagBits2::eAllCommands);
@@ -242,7 +246,7 @@ public:
 					.setWaitSemaphoreInfos(wait_semaphore_infos)
 					.setCommandBufferInfos(submit_cmd_info)
 					.setSignalSemaphoreInfos(signal_semaphore_info),
-					present_complete_fence);
+					reused_acquire_image_semaphore.fence);
 			}
 
 			{

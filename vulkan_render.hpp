@@ -461,11 +461,16 @@ namespace vulkan {
         assert(swapchainCreateInfo.minImageCount >= surfaceCapabilities.minImageCount);
 		return device.createSwapchainKHR(swapchainCreateInfo);
 	}
+	// reuse_semaphore will be used again, so we need a fence to notify cpu that it is not used by gpu.
+	struct reuse_semaphore {
+		vk::Fence fence;
+		vk::Semaphore semaphore;
+	};
 	class present_manager {
 	public:
 		present_manager(vk::SharedDevice device, uint32_t count) : m_device{ device }, next_semaphore_index{ 0 } {
 			for (int i = 0; i < count; i++) {
-				m_semaphores.push_back(std::pair{ m_device->createFence(vk::FenceCreateInfo{vk::FenceCreateFlagBits::eSignaled}), m_device->createSemaphore(vk::SemaphoreCreateInfo{}) });
+				m_semaphores.push_back(reuse_semaphore{ m_device->createFence(vk::FenceCreateInfo{vk::FenceCreateFlagBits::eSignaled}), m_device->createSemaphore(vk::SemaphoreCreateInfo{}) });
 			}
 		}
 		auto get_next() {
@@ -476,26 +481,24 @@ namespace vulkan {
 			auto res = m_device->waitForFences(std::array<vk::Fence, 1>{fence}, true, UINT64_MAX);
 			assert(res == vk::Result::eSuccess);
 			m_device->resetFences(std::array<vk::Fence, 1>{fence});
-			return std::pair{ fence, semaphore };
+			return reuse_semaphore{ fence, semaphore };
 		}
 		void wait_all() {
-			std::ranges::for_each(m_semaphores, [&m_device=m_device](auto fence_semaphore) {
-				auto [fence, semaphore] = fence_semaphore;
-				auto res = m_device->waitForFences(std::array<vk::Fence, 1>{fence}, true, UINT64_MAX);
+			std::ranges::for_each(m_semaphores, [&m_device=m_device](auto reuse_semaphore) {
+				auto res = m_device->waitForFences(std::array<vk::Fence, 1>{reuse_semaphore.fence}, true, UINT64_MAX);
 				assert(res == vk::Result::eSuccess);
 				});
 		}
 		~present_manager() {
 			wait_all();
-			std::ranges::for_each(m_semaphores, [&m_device = m_device](auto fence_semaphore) {
-				auto [fence, semaphore] = fence_semaphore;
-				m_device->destroyFence(fence);
-				m_device->destroySemaphore(semaphore);
+			std::ranges::for_each(m_semaphores, [&m_device = m_device](auto reuse_semaphore) {
+				m_device->destroyFence(reuse_semaphore.fence);
+				m_device->destroySemaphore(reuse_semaphore.semaphore);
 				});
 		}
 	private:
 		vk::SharedDevice m_device;
-		std::vector<std::pair<vk::Fence, vk::Semaphore>> m_semaphores;
+		std::vector<reuse_semaphore> m_semaphores;
 		uint32_t next_semaphore_index;
 	};
 	namespace shared {
