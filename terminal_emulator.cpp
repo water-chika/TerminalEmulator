@@ -2,6 +2,9 @@
 #include "font_loader.hpp"
 #include "shader_path.hpp"
 
+#include <set>
+#include <map>
+
 class simple_draw_command{
 public:
     simple_draw_command(
@@ -110,26 +113,40 @@ public:
 					fragment_path, *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
+
+		std::string str = "hello world!";
+		std::set<char> char_set{};
+		std::ranges::copy(str, std::inserter(char_set, char_set.begin()));
+		std::vector<char> characters{};
+		std::ranges::copy(char_set, std::back_inserter(characters));
+		std::map<char, int> char_texture_indices;
+		std::ranges::for_each(from_0_count_n(characters.size()), [&characters, &char_texture_indices](auto i) {
+			char_texture_indices.emplace(characters[i], static_cast<int>(i));
+			});
+		std::vector<int> str_texture_indices{};
+		std::ranges::transform(str, std::back_inserter(str_texture_indices), [&char_texture_indices](auto c) {
+			return char_texture_indices[c];
+			});
+
 		font_loader font_loader{};
 		uint32_t font_width = 32, font_height = 32;
 		font_loader.set_char_size(font_width, font_height);
 		auto [vk_texture, vk_texture_memory, texture_view] =
 			vulkan::create_texture(*physical_device, *device,
 				vk::Format::eR8Unorm,
-				font_width*5, font_height,
-				[&font_loader, font_width, font_height](char* ptr, int pitch) {
-					std::string str = "hello";
-					for (int i = 0; i < std::size(str); i++) {
-						font_loader.render_char(str[i]);
+				font_width*std::size(char_set), font_height,
+				[&font_loader, font_width, font_height, &characters](char* ptr, int pitch) {
+					std::ranges::for_each(from_0_count_n(characters.size()), [&font_loader, font_width, font_height, &characters, ptr, pitch](auto i) {
+						font_loader.render_char(characters[i]);
 						auto glyph = font_loader.get_glyph();
-						uint32_t start_row = 0;
+						uint32_t start_row = font_height - glyph->bitmap_top - 1;
 						for (int row = 0; row < glyph->bitmap.rows; row++) {
 							for (int x = 0; x < glyph->bitmap.width; x++) {
-								ptr[(start_row + row) * pitch + glyph->bitmap_left + i*font_width + x] = 
+								ptr[(start_row + row) * pitch + glyph->bitmap_left + i * font_width + x] =
 									glyph->bitmap.buffer[row * glyph->bitmap.pitch + x];
 							}
 						}
-					}
+						});
 				});
 		vk::SharedImage texture{
 			vk_texture, device };
