@@ -25,12 +25,12 @@ void main(){
     vec2 pos2 = pos + vec2(0,1)*0.1;
     vec2 pos3 = pos + vec2(1,1)*0.1;
 
-    set_pos(0, pos); set_coord(0, vec2(0,0));
-    set_pos(1, pos1); set_coord(1, vec2(1,0));
-    set_pos(2, pos2); set_coord(2, vec2(0,1));
-    set_pos(3, pos1); set_coord(3, vec2(1,0));
-    set_pos(4, pos2); set_coord(4, vec2(0,1));
-    set_pos(5, pos3); set_coord(5, vec2(1,1));
+    set_pos(0, pos); set_coord(0, vec2(0.2*gl_LocalInvocationID.x,0));
+    set_pos(1, pos1); set_coord(1, vec2(0.2*(gl_LocalInvocationID.x+1),0));
+    set_pos(2, pos2); set_coord(2, vec2(0.2*gl_LocalInvocationID.x,1));
+    set_pos(3, pos1); set_coord(3, vec2(0.2*(gl_LocalInvocationID.x+1),0));
+    set_pos(4, pos2); set_coord(4, vec2(0.2*gl_LocalInvocationID.x,1));
+    set_pos(5, pos3); set_coord(5, vec2(0.2*(gl_LocalInvocationID.x+1),1));
     gl_PrimitiveTriangleIndicesEXT[index_start_index] = uvec3(vertex_start_index,vertex_start_index+1,vertex_start_index+2);
     gl_PrimitiveTriangleIndicesEXT[index_start_index+1] = uvec3(vertex_start_index+3,vertex_start_index+4,vertex_start_index+5);
     uint work_group_size = gl_WorkGroupSize.x;

@@ -165,7 +165,7 @@ namespace vulkan {
 		return std::tuple{ image, memory, image_view };
 	}
 	template<class T>
-	inline auto create_texture(vk::PhysicalDevice physical_device, vk::Device device, vk::Format format, uint32_t width, uint32_t height, std::span<T> data) {
+	inline auto create_texture(vk::PhysicalDevice physical_device, vk::Device device, vk::Format format, uint32_t width, uint32_t height, T fun) {
 		auto image = create_image(device, vk::ImageType::e2D, format, vk::Extent2D{ width, height }, vk::ImageTiling::eLinear, vk::ImageUsageFlagBits::eSampled, vk::ImageLayout::ePreinitialized);
 		auto [memory, memory_size] = allocate_device_memory(physical_device, device, image, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 		device.bindImageMemory(image, memory, 0);
@@ -174,9 +174,7 @@ namespace vulkan {
 			vk::SubresourceLayout layout;
 			device.getImageSubresourceLayout(image, &subres, &layout);
 			auto ptr = reinterpret_cast<char*>(device.mapMemory(memory, 0, memory_size));
-			for (int i = 0; i < height; i++) {
-				memcpy(&ptr[layout.offset + i * layout.rowPitch], data.data() + i * width, width);
-			}
+			fun(ptr + layout.offset, layout.rowPitch);
 		}
 		device.unmapMemory(memory);
 		auto image_view = create_image_view(device, image, vk::ImageViewType::e2D, format, vk::ImageAspectFlagBits::eColor);

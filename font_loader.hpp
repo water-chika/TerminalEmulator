@@ -20,6 +20,11 @@ public:
 		}
         m_glyph = m_face->glyph;
     }
+	void set_char_size(uint32_t width, uint32_t height) {
+		if (FT_Set_Char_Size(m_face, width<<6, height<<6, 72, 72)) {
+			throw std::runtime_error{ "failed to set font size" };
+		}
+	}
 	void render_char(char c) {
 		auto glyph_index = FT_Get_Char_Index(m_face, c);
 		assert(glyph_index != 0);
@@ -30,8 +35,8 @@ public:
 			throw std::runtime_error{ "failed to render glyph" };
 		}
 	}
-    auto get_bitmap() {
-        return &m_glyph->bitmap;
+    auto get_glyph() {
+        return m_glyph;
     }
 private:
 	FT_Library m_library;

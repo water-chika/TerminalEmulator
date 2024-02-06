@@ -111,10 +111,26 @@ public:
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 		font_loader font_loader{};
-		font_loader.render_char('a');
-		auto bitmap = font_loader.get_bitmap();
+		uint32_t font_width = 32, font_height = 32;
+		font_loader.set_char_size(font_width, font_height);
 		auto [vk_texture, vk_texture_memory, texture_view] =
-			vulkan::create_texture(*physical_device, *device, vk::Format::eR8Unorm, bitmap->pitch, bitmap->rows, std::span{ bitmap->buffer, bitmap->pitch * bitmap->rows });
+			vulkan::create_texture(*physical_device, *device,
+				vk::Format::eR8Unorm,
+				font_width*5, font_height,
+				[&font_loader, font_width, font_height](char* ptr, int pitch) {
+					std::string str = "hello";
+					for (int i = 0; i < std::size(str); i++) {
+						font_loader.render_char(str[i]);
+						auto glyph = font_loader.get_glyph();
+						uint32_t start_row = 0;
+						for (int row = 0; row < glyph->bitmap.rows; row++) {
+							for (int x = 0; x < glyph->bitmap.width; x++) {
+								ptr[(start_row + row) * pitch + glyph->bitmap_left + i*font_width + x] = 
+									glyph->bitmap.buffer[row * glyph->bitmap.pitch + x];
+							}
+						}
+					}
+				});
 		vk::SharedImage texture{
 			vk_texture, device };
 		vk::SharedImageView shared_texture_view{ texture_view, device };
