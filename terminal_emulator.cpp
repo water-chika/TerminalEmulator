@@ -111,6 +111,7 @@ public:
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 		font_loader font_loader{};
+		font_loader.render_char('a');
 		auto bitmap = font_loader.get_bitmap();
 		auto [vk_texture, vk_texture_memory, texture_view] =
 			vulkan::create_texture(*physical_device, *device, vk::Format::eR8Unorm, bitmap->pitch, bitmap->rows, std::span{ bitmap->buffer, bitmap->pitch * bitmap->rows });
