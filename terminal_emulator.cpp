@@ -66,11 +66,18 @@ struct glfwContext
 	}
 };
 
-class vulkan_render {
+class fix_instance_destroy {
+public:
+	fix_instance_destroy()
+		: instance{ vulkan::shared::create_instance() }
+	{}
+protected:
+	vk::SharedInstance instance;
+};
+
+class vulkan_render : fix_instance_destroy {
 public:
 	void init(auto&& get_surface) {
-		auto instance{ vulkan::shared::create_instance() };
-
 		auto physical_device{ vulkan::shared::select_physical_device(instance) };
 		uint32_t graphicsQueueFamilyIndex = vulkan::shared::select_queue_family(physical_device);
 
@@ -161,9 +168,11 @@ public:
 		texture = vk::SharedImage{
 			vk_texture, device };
 		texture_view = vk::SharedImageView{ vk_texture_view, device };
-		auto [vk_char_indices_buffer, vk_char_indices_buffer_memory, vk_char_indices_buffer_view] =
+		auto [vk_char_indices_buffer, vk_char_indices_buffer_memory, vk_char_indices_buffer_size] =
 			vulkan::create_uniform_buffer(*physical_device, *device,
 				str_texture_indices);
+		char_indices_buffer = vk::SharedBuffer{ vk_char_indices_buffer, device };
+		char_indices_buffer_memory = vk::SharedDeviceMemory{ vk_char_indices_buffer_memory, device };
 		present_manager = std::make_shared<vulkan::present_manager>(device, 10);
 		auto texture_prepare_semaphore = present_manager->get_next();
 		{
@@ -296,6 +305,8 @@ private:
 	vk::SharedImage texture;
 	vk::SharedImageView texture_view;
 	vk::SharedDeviceMemory texture_memory;
+	vk::SharedBuffer char_indices_buffer;
+	vk::SharedDeviceMemory char_indices_buffer_memory;
 	vk::UniqueSampler sampler;
 	std::vector<vk::SharedImageView> imageViews;
 	std::vector<vk::UniqueSemaphore> render_complete_semaphores;
