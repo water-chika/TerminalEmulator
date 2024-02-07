@@ -232,13 +232,17 @@ namespace vulkan {
 	template<class T>
 	inline void copy_to_buffer(vk::Device device, vk::Buffer buffer, vk::DeviceMemory memory, T data) {
 		auto memory_requirement = device.getBufferMemoryRequirements(buffer);
-		auto* ptr = static_cast<uint8_t*>(device.mapMemory(memory, 0, memory_requirement.size));
-		std::memcpy(ptr, data.data(), data.size()*sizeof(data[0]));
+		using ele_type = std::remove_reference_t<decltype(*data.begin())>;
+		auto* ptr = static_cast<ele_type*>(device.mapMemory(memory, 0, memory_requirement.size));
+		int i = 0;
+		for (auto ite = data.begin(); ite != data.end(); ++ite) {
+			ptr[i++] = *ite;
+		}
 		device.unmapMemory(memory);
 	}
 	template<class T>
 	inline auto create_uniform_buffer(vk::PhysicalDevice physical_device, vk::Device device, T mem) {
-		auto buffer = create_buffer(device, mem.size()*sizeof(mem[0]), vk::BufferUsageFlagBits::eUniformBuffer);
+		auto buffer = create_buffer(device, mem.size()*sizeof(*std::begin(mem)), vk::BufferUsageFlagBits::eUniformBuffer);
 		auto [memory,memory_size] = allocate_device_memory(physical_device, device, buffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 		device.bindBufferMemory(buffer, memory, 0);
 		copy_to_buffer(device, buffer, memory, mem);

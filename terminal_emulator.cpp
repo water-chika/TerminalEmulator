@@ -86,12 +86,75 @@ public:
 	}
 private:
 	static GLFWwindow* create_window() {
-		uint32_t width = 512, height = 512;
+		uint32_t width = 1024, height = 1024;
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		return glfwCreateWindow(width, height, "Terminal Emulator", nullptr, nullptr);
 	}
 	glfwContext glfw_context;
 	GLFWwindow* window;
+};
+
+
+
+template<class T, int Dim0_size, int Dim1_size, int Dim = 2>
+class multidimention_array {
+	static_assert(Dim == 2);
+public:
+	struct elem_ref {
+		using difference_type = int;
+		using value_type = T;
+		using pointer = T*;
+		using reference = T&;
+		using iterator_category = std::random_access_iterator_tag;
+		using iterator_concept = std::contiguous_iterator_tag;
+		auto operator++() {
+			if (x + 1 == Dim0_size) {
+				x = 0;
+				++y;
+			}
+			else {
+				++x;
+			}
+			return *this;
+		}
+		auto operator--() {
+			if (x == 0) {
+				x = Dim0_size - 1;
+				--y;
+			}
+			else {
+				--x;
+			}
+		}
+		auto& operator*() {
+			return m_array[std::pair{ x, y }];
+		}
+		auto operator-(elem_ref& rhs) {
+			return (rhs.y - y) * Dim1_size + rhs.x - x;
+		}
+		bool operator==(elem_ref rhs) {
+			return x == rhs.x && y == rhs.y;
+		}
+		multidimention_array& m_array;
+		int x;
+		int y;
+	};
+	using value_type = T;
+	auto begin() {
+		return elem_ref{ *this, 0, 0 };
+	}
+	auto end() {
+		return elem_ref{ *this, 0, Dim1_size };
+	}
+	auto size() {
+		return Dim0_size * Dim1_size;
+	}
+	T& operator[](std::pair<int, int> index) {
+		auto [x, y] = index;
+		return m_data[y][x];
+	}
+private:
+	std::array<std::array<T, Dim0_size>, Dim1_size > m_data;
 };
 
 class fix_instance_destroy {
@@ -159,6 +222,7 @@ public:
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
+		multidimention_array<int, 32, 32> char_indices_buf{};
 		std::string str = "hello world!";
 		std::set<char> char_set{};
 		std::ranges::copy(str, std::inserter(char_set, char_set.begin()));
@@ -169,9 +233,12 @@ public:
 			char_texture_indices.emplace(characters[i], static_cast<int>(i));
 			});
 		std::vector<int> str_texture_indices{};
-		std::ranges::transform(str, std::back_inserter(str_texture_indices), [&char_texture_indices](auto c) {
-			return char_texture_indices[c];
-			});
+		{
+			auto ite = char_indices_buf.begin();
+			for (auto c_ite = str.begin(); ite != char_indices_buf.end(), c_ite != str.end(); ++ite, ++c_ite) {
+				*ite = char_texture_indices[*c_ite];
+			}
+		}
 
 		font_loader font_loader{};
 		uint32_t font_width = 32, font_height = 32;
@@ -198,7 +265,7 @@ public:
 		texture_view = vk::SharedImageView{ vk_texture_view, device };
 		auto [vk_char_indices_buffer, vk_char_indices_buffer_memory, vk_char_indices_buffer_size] =
 			vulkan::create_uniform_buffer(*physical_device, *device,
-				str_texture_indices);
+				char_indices_buf);
 		char_indices_buffer = vk::SharedBuffer{ vk_char_indices_buffer, device };
 		char_indices_buffer_memory = vk::SharedDeviceMemory{ vk_char_indices_buffer_memory, device };
 		present_manager = std::make_shared<vulkan::present_manager>(device, 10);
