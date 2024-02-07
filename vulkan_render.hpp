@@ -236,8 +236,9 @@ namespace vulkan {
 		std::memcpy(ptr, data.data(), data.size()*sizeof(data[0]));
 		device.unmapMemory(memory);
 	}
-	inline auto create_uniform_buffer(vk::PhysicalDevice physical_device, vk::Device device, std::span<char> mem) {
-		auto buffer = create_buffer(device, mem.size(), vk::BufferUsageFlagBits::eUniformBuffer);
+	template<class T>
+	inline auto create_uniform_buffer(vk::PhysicalDevice physical_device, vk::Device device, T mem) {
+		auto buffer = create_buffer(device, mem.size()*sizeof(mem[0]), vk::BufferUsageFlagBits::eUniformBuffer);
 		auto [memory,memory_size] = allocate_device_memory(physical_device, device, buffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 		device.bindBufferMemory(buffer, memory, 0);
 		copy_to_buffer(device, buffer, memory, mem);

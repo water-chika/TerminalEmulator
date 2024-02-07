@@ -89,12 +89,19 @@ public:
 		auto swapchain = vk::SharedSwapchainKHR(vulkan::create_swapchain(*physical_device, *device, *surface, width, height, color_format), device, surface);
 
 		auto render_pass = vk::SharedRenderPass{ vulkan::create_render_pass(*device, color_format, depth_format), device };
-		auto descriptor_set_binding = vk::DescriptorSetLayoutBinding{}
+		auto descriptor_set_bindings = std::array{
+			vk::DescriptorSetLayoutBinding{}
 			.setBinding(0)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
-			.setDescriptorCount(1);
-		auto descriptor_set_layout = device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo{}.setBindings(descriptor_set_binding));
+			.setDescriptorCount(1),
+			vk::DescriptorSetLayoutBinding{}
+			.setBinding(1)
+			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+			.setStageFlags(vk::ShaderStageFlagBits::eMeshEXT)
+			.setDescriptorCount(1),
+		};
+		auto descriptor_set_layout = device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo{}.setBindings(descriptor_set_bindings));
 		auto pipeline_layout = vk::SharedPipelineLayout{ vulkan::create_pipeline_layout(*device, *descriptor_set_layout), device };
 
 		vulkan::vertex_stage_info vertex_stage_info{
@@ -151,6 +158,9 @@ public:
 		vk::SharedImage texture{
 			vk_texture, device };
 		vk::SharedImageView shared_texture_view{ texture_view, device };
+		auto [vk_char_indices_buffer, vk_char_indices_buffer_memory, vk_char_indices_buffer_view] =
+			vulkan::create_uniform_buffer(*physical_device, *device,
+				str_texture_indices);
 
 		auto texture_prepare_semaphore = device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 		{
@@ -167,17 +177,27 @@ public:
 			queue->submit2(vk::SubmitInfo2{}.setCommandBufferInfos(command_submit_info).setSignalSemaphoreInfos(signal_semaphore_info));
 		}
 		vk::SharedDeviceMemory texture_memory{ vk_texture_memory, device };
-		auto descriptor_pool_size = vk::DescriptorPoolSize{}.setType(vk::DescriptorType::eCombinedImageSampler).setDescriptorCount(1);
+		auto descriptor_pool_size = std::array{
+			vk::DescriptorPoolSize{}.setType(vk::DescriptorType::eCombinedImageSampler).setDescriptorCount(1),
+			vk::DescriptorPoolSize{}.setType(vk::DescriptorType::eUniformBuffer).setDescriptorCount(1),
+		};
 		auto descriptor_pool = device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo{}.setPoolSizes(descriptor_pool_size).setMaxSets(1));
 		auto descriptor_set = std::move(device->allocateDescriptorSets(vk::DescriptorSetAllocateInfo{}.setDescriptorPool(*descriptor_pool).setSetLayouts(*descriptor_set_layout)).front());
 		auto sampler = device->createSamplerUnique(vk::SamplerCreateInfo{});
 		auto texture_image_info = vk::DescriptorImageInfo{}.setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setImageView(texture_view).setSampler(*sampler);
-		auto descriptor_set_write =
+		auto char_texture_indices_info = vk::DescriptorBufferInfo{}.setBuffer( vk_char_indices_buffer ).setOffset(0).setRange(vk::WholeSize);
+		auto descriptor_set_write = std::array{
 			vk::WriteDescriptorSet{}
 			.setDstBinding(0)
 			.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 			.setImageInfo(texture_image_info)
-			.setDstSet(descriptor_set);
+			.setDstSet(descriptor_set),
+			vk::WriteDescriptorSet{}
+			.setDstBinding(1)
+			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+			.setBufferInfo(char_texture_indices_info)
+			.setDstSet(descriptor_set),
+		};
 		device->updateDescriptorSets(descriptor_set_write, nullptr);
 
 		std::vector<vk::SharedImageView> imageViews;
