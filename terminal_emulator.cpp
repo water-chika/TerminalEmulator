@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <utility>
+#include <functional>
 
 class simple_draw_command{
 public:
@@ -64,6 +65,33 @@ struct glfwContext
 	~glfwContext() {
 		glfwTerminate();
 	}
+};
+
+enum class run_result {
+	eContinue,
+	eBreak,
+};
+
+class window_manager {
+public:
+	window_manager() : window{ create_window() } {
+
+	}
+	auto get_window() {
+		return window;
+	}
+	run_result run() {
+		glfwPollEvents();
+		return glfwWindowShouldClose(window) ? run_result::eBreak : run_result::eContinue;
+	}
+private:
+	static GLFWwindow* create_window() {
+		uint32_t width = 512, height = 512;
+		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+		return glfwCreateWindow(width, height, "Terminal Emulator", nullptr, nullptr);
+	}
+	glfwContext glfw_context;
+	GLFWwindow* window;
 };
 
 class fix_instance_destroy {
@@ -258,7 +286,7 @@ public:
 		// There should be some commands wait for texture load semaphore.
 		// There will be a BUG, fix it!
 	}
-	void run() {
+	run_result run() {
 		auto reused_acquire_image_semaphore = present_manager->get_next();
 		auto image_index = device->acquireNextImageKHR(
 			*swapchain, UINT64_MAX,
@@ -290,6 +318,7 @@ public:
 			vk::PresentInfoKHR present_info{ wait_semaphores, swapchains, indices };
 			assert(queue->presentKHR(present_info) == vk::Result::eSuccess);
 		}
+		return run_result::eContinue;
 	}
 	~vulkan_render() {
 		present_manager->wait_all();
@@ -321,10 +350,7 @@ private:
 class terminal_emulator {
 public:
 	terminal_emulator() {
-		uint32_t width = 512, height = 512;
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		GLFWwindow* window = glfwCreateWindow(width, height, "Terminal Emulator", nullptr, nullptr);
-		m_window = window;
+		GLFWwindow* window = window_manager.get_window();
 		m_render.init([window](VkInstance instance) {
 			VkSurfaceKHR surface;
 			assert(VK_SUCCESS == glfwCreateWindowSurface(instance, window, nullptr, &surface));
@@ -332,14 +358,18 @@ public:
 			});
 	}
 	void run() {
-		while (false == glfwWindowShouldClose(m_window)) {
-			m_render.run();
-			glfwPollEvents();
-		}
+		auto runs = std::array<std::function<run_result()>, 2>{
+			[&window_manager=window_manager]() { return window_manager.run(); },
+			[&m_render=m_render]() { return m_render.run(); },
+		};
+		while (
+			std::ranges::all_of(runs, [](auto f) {
+			return f() == run_result::eContinue;
+			})
+			);
 	}
 private:
-	glfwContext m_glfw_context;
-	GLFWwindow* m_window;
+	window_manager window_manager;
 	vulkan_render m_render;
 };
 
