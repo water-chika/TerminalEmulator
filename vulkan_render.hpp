@@ -16,6 +16,38 @@
 #define max max
 #include "spirv_reader.hpp"
 
+
+template<std::integral Int>
+class integer_less_equal {
+public:
+	integer_less_equal(Int v, Int maximum) : m_value{ v }, m_max{ maximum } {
+		check_valid();
+	}
+	integer_less_equal& operator=(int d) {
+		m_value = d;
+		check_valid();
+	}
+	operator Int() const {
+		return m_value;
+	}
+	integer_less_equal& operator++() {
+		++m_value;
+		check_valid();
+		return *this;
+	}
+	Int operator++(int) {
+		auto ret = m_value++;
+		check_valid();
+		return ret;
+	}
+private:
+	void check_valid() {
+		assert(m_value <= m_max);
+	}
+	Int m_value;
+	const Int m_max;
+};
+
 template<class T>
 class from_0_count_n {
 public:
@@ -156,9 +188,9 @@ namespace vulkan {
 	inline auto create_image_view(vk::Device device, vk::Image image, vk::ImageViewType type, vk::Format format, vk::ImageAspectFlags aspect) {
 		return device.createImageView(vk::ImageViewCreateInfo{ {}, image, type, format, {}, {aspect, 0, 1, 0, 1} });
 	}
-	inline auto create_depth_buffer(vk::PhysicalDevice physical_device, vk::Device device, vk::Format format, uint32_t width, uint32_t height) {
+	inline auto create_depth_buffer(vk::PhysicalDevice physical_device, vk::Device device, vk::Format format, vk::Extent2D extent) {
 		vk::ImageTiling tiling = select_depth_image_tiling(physical_device, format);
-		auto image = create_image(device, vk::ImageType::e2D, format, vk::Extent2D{ width, height }, tiling, vk::ImageUsageFlagBits::eDepthStencilAttachment);
+		auto image = create_image(device, vk::ImageType::e2D, format, extent, tiling, vk::ImageUsageFlagBits::eDepthStencilAttachment);
 		auto [memory,memory_size] = allocate_device_memory(physical_device, device, image, vk::MemoryPropertyFlagBits::eDeviceLocal);
 		device.bindImageMemory(image, memory, 0);
 		auto image_view = create_image_view(device, image, vk::ImageViewType::e2D, format, vk::ImageAspectFlagBits::eDepth);
@@ -422,16 +454,10 @@ namespace vulkan {
 				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info, 
 				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
 	}
-	inline auto create_swapchain(vk::PhysicalDevice physical_device, vk::Device device, vk::SurfaceKHR surface, uint32_t width, uint32_t height, vk::Format format) {
+	inline auto create_swapchain(vk::PhysicalDevice physical_device, vk::Device device, vk::SurfaceKHR surface, vk::Format format) {
 		vk::SurfaceCapabilitiesKHR surfaceCapabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
-		vk::Extent2D swapchainExtent;
-		if (surfaceCapabilities.currentExtent.width == std::numeric_limits<uint32_t>::max()) {
-			swapchainExtent.width = std::clamp(width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
-			swapchainExtent.height = std::clamp(height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
-		}
-		else {
-			swapchainExtent = surfaceCapabilities.currentExtent;
-		}
+		vk::Extent2D swapchainExtent = surfaceCapabilities.currentExtent;
+		assert(swapchainExtent.width != UINT32_MAX && swapchainExtent.height != UINT32_MAX);
         uint32_t min_image_count = std::max(surfaceCapabilities.maxImageCount,surfaceCapabilities.minImageCount);
 
 		vk::PresentModeKHR swapchainPresentMode = vk::PresentModeKHR::eFifo;
@@ -462,7 +488,7 @@ namespace vulkan {
 			true,
 			nullptr);
         assert(swapchainCreateInfo.minImageCount >= surfaceCapabilities.minImageCount);
-		return device.createSwapchainKHR(swapchainCreateInfo);
+		return std::tuple{ device.createSwapchainKHR(swapchainCreateInfo), swapchainExtent };
 	}
 	// reuse_semaphore will be used again, so we need a fence to notify cpu that it is not used by gpu.
 	struct reuse_semaphore {
