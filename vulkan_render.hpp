@@ -346,17 +346,38 @@ namespace vulkan {
 	inline auto create_framebuffer(vk::Device device, vk::RenderPass render_pass, std::vector<vk::ImageView> attachments, vk::Extent2D extent) {
 		return device.createFramebuffer(vk::FramebufferCreateInfo{ {}, render_pass, attachments, extent.width, extent.height, 1 });
 	}
+	struct vertex_stage_info {
+		std::filesystem::path shader_file_path;
+		std::string entry_name;
+		vk::VertexInputBindingDescription input_binding;
+		std::vector<vk::VertexInputAttributeDescription> input_attributes;
+	};
+	struct task_stage_info {
+		std::filesystem::path shader_file_path;
+		std::string entry_name;
+	};
 	struct mesh_stage_info {
 		std::filesystem::path shader_file_path;
 		std::string entry_name;
 	};
+	struct geometry_stage_info {
+		std::filesystem::path shader_file_path;
+		std::string entry_name;
+	};
 	inline auto create_pipeline(vk::Device device,
-		mesh_stage_info mesh_stage_info, std::filesystem::path fragment_shader,
+		task_stage_info task_stage_info,
+		mesh_stage_info mesh_stage_info,
+		std::filesystem::path fragment_shader,
 		vk::RenderPass render_pass,
 		vk::PipelineLayout layout) {
+		auto task_shader_module = create_shader_module(device, task_stage_info.shader_file_path);
 		auto mesh_shader_module = create_shader_module(device, mesh_stage_info.shader_file_path);
 		auto fragment_shader_module = create_shader_module(device, fragment_shader);
-		std::array<vk::PipelineShaderStageCreateInfo, 2> shader_stage_create_infos = {
+		auto shader_stage_create_infos = std::array{
+			vk::PipelineShaderStageCreateInfo{}
+			.setStage(vk::ShaderStageFlagBits::eTaskEXT)
+			.setModule(*task_shader_module)
+			.setPName(task_stage_info.entry_name.c_str()),
 			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eMeshEXT, *mesh_shader_module, mesh_stage_info.entry_name.c_str()},
 			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eFragment, *fragment_shader_module, "main"},
 		};
@@ -378,12 +399,35 @@ namespace vulkan {
 				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info,
 				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
 	}
-	struct vertex_stage_info {
-		std::filesystem::path shader_file_path;
-		std::string entry_name;
-		vk::VertexInputBindingDescription input_binding;
-		std::vector<vk::VertexInputAttributeDescription> input_attributes;
-	};
+	inline auto create_pipeline(vk::Device device,
+		mesh_stage_info mesh_stage_info, std::filesystem::path fragment_shader,
+		vk::RenderPass render_pass,
+		vk::PipelineLayout layout) {
+		auto mesh_shader_module = create_shader_module(device, mesh_stage_info.shader_file_path);
+		auto fragment_shader_module = create_shader_module(device, fragment_shader);
+		auto shader_stage_create_infos = std::array{
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eMeshEXT, *mesh_shader_module, mesh_stage_info.entry_name.c_str()},
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eFragment, *fragment_shader_module, "main"},
+		};
+		vk::PipelineViewportStateCreateInfo viewport_state_create_info{ {}, 1, nullptr, 1, nullptr };
+		vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info{ {}, false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eNone, vk::FrontFace::eClockwise, false, 0.0f, 0.0f, 0.0f, 1.0f };
+		vk::PipelineMultisampleStateCreateInfo multisample_state_create_info{ {}, vk::SampleCountFlagBits::e1 };
+		vk::StencilOpState stencil_op_state{ vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways };
+		vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_create_info{ {}, true, true, vk::CompareOp::eLessOrEqual, false, false, stencil_op_state, stencil_op_state };
+		std::array<vk::PipelineColorBlendAttachmentState, 1> const color_blend_attachments = {
+		vk::PipelineColorBlendAttachmentState().setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+															  vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA) };
+		vk::PipelineColorBlendStateCreateInfo color_blend_state_create_info{};
+		color_blend_state_create_info.setAttachments(color_blend_attachments);
+		std::array<vk::DynamicState, 2> dynamic_states = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+		vk::PipelineDynamicStateCreateInfo dynamic_state_create_info{ vk::PipelineDynamicStateCreateFlags{}, dynamic_states };
+		return device.createGraphicsPipeline(nullptr,
+			vk::GraphicsPipelineCreateInfo{ {},
+				shader_stage_create_infos ,nullptr, nullptr,
+				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info,
+				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
+	}
+
 	inline auto create_pipeline(vk::Device device,
 		vertex_stage_info vertex_stage, std::filesystem::path fragment_shader,
 		vk::RenderPass render_pass,
@@ -415,10 +459,7 @@ namespace vulkan {
 				nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info, 
 				&depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
 	}
-    struct geometry_stage_info {
-		std::filesystem::path shader_file_path;
-		std::string entry_name;
-    };
+
 	inline auto create_pipeline(vk::Device device,
 		vertex_stage_info vertex_stage,
         geometry_stage_info geometry_stage,

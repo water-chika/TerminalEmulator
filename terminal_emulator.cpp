@@ -40,7 +40,7 @@ public:
 			cmd.setViewport(0, vk::Viewport(0, 0, swapchain_extent.width, swapchain_extent.height, 0, 1));
 			cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent));
 			//cmd.draw(3, 1, 0, 0);
-			cmd.drawMeshTasksEXT(2, 1, 1, dldid);
+			cmd.drawMeshTasksEXT(1, 1, 1, dldid);
 			cmd.endRenderPass();
 			cmd.end();
 	}
@@ -233,6 +233,9 @@ public:
 			descriptor_set = std::move(device->allocateDescriptorSets(vk::DescriptorSetAllocateInfo{}.setDescriptorPool(*descriptor_pool).setSetLayouts(*descriptor_set_layout)).front());
 		}
 
+		vulkan::task_stage_info task_stage_info{
+			task_shader_path, "main",
+		};
 		vulkan::mesh_stage_info mesh_stage_info{
 			mesh_shader_path, "main"
 		};
@@ -241,13 +244,14 @@ public:
 		};
 		pipeline = vk::SharedPipeline{
 			vulkan::create_pipeline(*device,
+					task_stage_info,
 					mesh_stage_info,
 					fragment_shader_path, *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
 		multidimention_array<int, 32, 32> char_indices_buf{};
-		std::string str = "hello world!";
+		std::string str = "hello world! Wow, do you think this is a good start? ...............";
 		std::set<char> char_set{};
 		std::ranges::copy(str, std::inserter(char_set, char_set.begin()));
 		std::vector<char> characters{};
@@ -266,17 +270,20 @@ public:
 
 		font_loader font_loader{};
 		uint32_t font_width = 32, font_height = 32;
+		uint32_t line_height = font_height * 2;
 		font_loader.set_char_size(font_width, font_height);
 		{
 			auto [vk_texture, vk_texture_memory, vk_texture_view] =
 				vulkan::create_texture(*physical_device, *device,
 					vk::Format::eR8Unorm,
-					font_width * std::size(char_set), font_height,
-					[&font_loader, font_width, font_height, &characters](char* ptr, int pitch) {
-						std::ranges::for_each(from_0_count_n(characters.size()), [&font_loader, font_width, font_height, &characters, ptr, pitch](auto i) {
+					font_width * std::size(char_set), line_height,
+					[&font_loader, font_width, font_height, line_height, &characters](char* ptr, int pitch) {
+						std::ranges::for_each(from_0_count_n(characters.size()),
+						[&font_loader, font_width, font_height, line_height, &characters, ptr, pitch](auto i) {
 							font_loader.render_char(characters[i]);
 							auto glyph = font_loader.get_glyph();
 							uint32_t start_row = font_height - glyph->bitmap_top - 1;
+							assert(start_row + glyph->bitmap.rows < line_height);
 							for (int row = 0; row < glyph->bitmap.rows; row++) {
 								for (int x = 0; x < glyph->bitmap.width; x++) {
 									ptr[(start_row + row) * pitch + glyph->bitmap_left + i * font_width + x] =

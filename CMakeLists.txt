@@ -16,6 +16,7 @@ add_executable(terminal_emulator
     ${CMAKE_CURRENT_BINARY_DIR}/geometry.spv
     ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv
     ${CMAKE_CURRENT_BINARY_DIR}/mesh.spv
+    ${CMAKE_CURRENT_BINARY_DIR}/task.spv
 )
 target_include_directories(
     terminal_emulator
