@@ -130,7 +130,7 @@ namespace vulkan {
 		vk::StructureChain device_create_info{
 			vk::DeviceCreateInfo{}.setQueueCreateInfos(deviceQueueCreateInfo).setPEnabledExtensionNames(deviceExtensions),
 			vk::PhysicalDeviceFeatures2{},
-			vk::PhysicalDeviceMeshShaderFeaturesEXT{}.setMeshShader(true),
+			vk::PhysicalDeviceMeshShaderFeaturesEXT{}.setMeshShader(true).setTaskShader(true),
 			vk::PhysicalDeviceMaintenance4Features{}.setMaintenance4(true),
 			vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(true),
 		};
@@ -359,6 +359,7 @@ namespace vulkan {
 	struct mesh_stage_info {
 		std::filesystem::path shader_file_path;
 		std::string entry_name;
+		vk::SpecializationInfo specialization_info;
 	};
 	struct geometry_stage_info {
 		std::filesystem::path shader_file_path;
@@ -378,7 +379,8 @@ namespace vulkan {
 			.setStage(vk::ShaderStageFlagBits::eTaskEXT)
 			.setModule(*task_shader_module)
 			.setPName(task_stage_info.entry_name.c_str()),
-			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eMeshEXT, *mesh_shader_module, mesh_stage_info.entry_name.c_str()},
+			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eMeshEXT, *mesh_shader_module, mesh_stage_info.entry_name.c_str()}
+			.setPSpecializationInfo(&mesh_stage_info.specialization_info),
 			vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eFragment, *fragment_shader_module, "main"},
 		};
 		vk::PipelineViewportStateCreateInfo viewport_state_create_info{ {}, 1, nullptr, 1, nullptr };

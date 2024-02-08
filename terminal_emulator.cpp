@@ -233,25 +233,8 @@ public:
 			descriptor_set = std::move(device->allocateDescriptorSets(vk::DescriptorSetAllocateInfo{}.setDescriptorPool(*descriptor_pool).setSetLayouts(*descriptor_set_layout)).front());
 		}
 
-		vulkan::task_stage_info task_stage_info{
-			task_shader_path, "main",
-		};
-		vulkan::mesh_stage_info mesh_stage_info{
-			mesh_shader_path, "main"
-		};
-		vulkan::geometry_stage_info geometry_stage_info{
-			geometry_shader_path, "main",
-		};
-		pipeline = vk::SharedPipeline{
-			vulkan::create_pipeline(*device,
-					task_stage_info,
-					mesh_stage_info,
-					fragment_shader_path, *render_pass, *pipeline_layout).value, device };
-
-		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
-
 		multidimention_array<int, 32, 32> char_indices_buf{};
-		std::string str = "hello world! Wow, do you think this is a good start? ...............";
+		std::string str = "hello world! Wow, do you think this is a good start? ...............abcdefghijklmnopqrstuvwxyz";
 		std::set<char> char_set{};
 		std::ranges::copy(str, std::inserter(char_set, char_set.begin()));
 		std::vector<char> characters{};
@@ -267,6 +250,32 @@ public:
 				*ite = char_texture_indices[*c_ite];
 			}
 		}
+
+		vulkan::task_stage_info task_stage_info{
+			task_shader_path, "main",
+		};
+		int char_count = characters.size();
+		auto char_count_map_entry = vk::SpecializationMapEntry{}.setConstantID(555).setOffset(0).setSize(sizeof(char_count));
+		auto char_count_specialization =
+			vk::SpecializationInfo{}
+			.setMapEntries(char_count_map_entry)
+			.setPData(&char_count)
+			.setDataSize(sizeof(char_count));
+		vulkan::mesh_stage_info mesh_stage_info{
+			mesh_shader_path, "main", char_count_specialization
+		};
+		vulkan::geometry_stage_info geometry_stage_info{
+			geometry_shader_path, "main",
+		};
+		pipeline = vk::SharedPipeline{
+			vulkan::create_pipeline(*device,
+					task_stage_info,
+					mesh_stage_info,
+					fragment_shader_path, *render_pass, *pipeline_layout).value, device };
+
+		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
+
+
 
 		font_loader font_loader{};
 		uint32_t font_width = 32, font_height = 32;
