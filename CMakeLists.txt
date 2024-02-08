@@ -37,7 +37,7 @@ function(compile_glsl_help stage file_name_without_postfix)
 		${CMAKE_CURRENT_BINARY_DIR}/${file_name_without_postfix}.spv
 	)
     set(
-        ${file_name_without_postfix}_path
+        ${file_name_without_postfix}_shader_path
         "${CMAKE_CURRENT_BINARY_DIR}/${file_name_without_postfix}.spv"
         PARENT_SCOPE
     )
@@ -47,6 +47,7 @@ compile_glsl_help(vert vertex)
 compile_glsl_help(frag fragment)
 compile_glsl_help(geom geometry)
 compile_glsl_help(mesh mesh)
+compile_glsl_help(task task)
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/template/shader_path.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/include/shader_path.hpp

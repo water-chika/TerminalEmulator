@@ -233,20 +233,16 @@ public:
 			descriptor_set = std::move(device->allocateDescriptorSets(vk::DescriptorSetAllocateInfo{}.setDescriptorPool(*descriptor_pool).setSetLayouts(*descriptor_set_layout)).front());
 		}
 
-		vulkan::vertex_stage_info vertex_stage_info{
-			vertex_path, "main", vk::VertexInputBindingDescription{0, 4 * sizeof(float)},
-			std::vector<vk::VertexInputAttributeDescription>{{0, 0, vk::Format::eR32G32B32A32Sfloat, 0}}
-		};
 		vulkan::mesh_stage_info mesh_stage_info{
-			mesh_path, "main"
+			mesh_shader_path, "main"
 		};
 		vulkan::geometry_stage_info geometry_stage_info{
-			geometry_path, "main",
+			geometry_shader_path, "main",
 		};
 		pipeline = vk::SharedPipeline{
 			vulkan::create_pipeline(*device,
 					mesh_stage_info,
-					fragment_path, *render_pass, *pipeline_layout).value, device };
+					fragment_shader_path, *render_pass, *pipeline_layout).value, device };
 
 		std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
 
