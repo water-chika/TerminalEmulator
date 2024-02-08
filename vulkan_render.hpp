@@ -2,7 +2,6 @@
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_shared.hpp>
-#include <GLFW/glfw3.h>
 
 #include <iostream>
 #include <cassert>
@@ -110,15 +109,6 @@ namespace vulkan {
 			}
 		}
 		return graphicsQueueFamilyIndex;
-	}
-	inline auto create_window_and_get_surface(vk::Instance instance, uint32_t width, uint32_t height) {
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		assert(0 != glfwVulkanSupported());
-		GLFWwindow* window = glfwCreateWindow(width, height, "Terminal Emulator", nullptr, nullptr);
-
-		VkSurfaceKHR surface;
-		glfwCreateWindowSurface(instance, window, nullptr, &surface);
-		return std::pair{ window, surface };
 	}
 	inline auto create_device(vk::PhysicalDevice physical_device, uint32_t graphicsQueueFamilyIndex) {
 		float queuePriority = 0.0f;
@@ -389,8 +379,20 @@ namespace vulkan {
 		vk::StencilOpState stencil_op_state{ vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways };
 		vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_create_info{ {}, true, true, vk::CompareOp::eLessOrEqual, false, false, stencil_op_state, stencil_op_state };
 		std::array<vk::PipelineColorBlendAttachmentState, 1> const color_blend_attachments = {
-		vk::PipelineColorBlendAttachmentState().setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-															  vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA) };
+		vk::PipelineColorBlendAttachmentState()
+		.setColorWriteMask(
+			vk::ColorComponentFlagBits::eR |
+			vk::ColorComponentFlagBits::eG |
+			vk::ColorComponentFlagBits::eB |
+			vk::ColorComponentFlagBits::eA)
+			.setBlendEnable(true)
+			.setColorBlendOp(vk::BlendOp::eAdd)
+			.setAlphaBlendOp(vk::BlendOp::eAdd)
+			.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+		};
 		vk::PipelineColorBlendStateCreateInfo color_blend_state_create_info{};
 		color_blend_state_create_info.setAttachments(color_blend_attachments);
 		std::array<vk::DynamicState, 2> dynamic_states = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
@@ -582,10 +584,6 @@ namespace vulkan {
 		}
 		auto select_queue_family(vk::SharedPhysicalDevice physical_device) {
 			return vulkan::select_queue_family(*physical_device);
-		}
-		auto create_window_and_get_surface(vk::SharedInstance instance, uint32_t width, uint32_t height) {
-			auto [window, surface] = vulkan::create_window_and_get_surface(*instance, width, height);
-			return std::pair{ window, vk::SharedSurfaceKHR{surface, instance} };
 		}
 		auto create_device(vk::SharedPhysicalDevice physical_device, uint32_t graphics_queue_family_index) {
 			return vk::SharedDevice{ vulkan::create_device(*physical_device, graphics_queue_family_index)};

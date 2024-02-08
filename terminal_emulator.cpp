@@ -2,6 +2,10 @@
 #include "font_loader.hpp"
 #include "shader_path.hpp"
 
+#include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+
 #include <set>
 #include <map>
 #include <memory>
@@ -25,7 +29,7 @@ public:
 			vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
 			cmd.begin(begin_info);
 			std::array<vk::ClearValue, 2> clear_values;
-			clear_values[0].color = vk::ClearColorValue{ 1.0f, 0.0f,0.0f,1.0f };
+			clear_values[0].color = vk::ClearColorValue{ 1.0f, 1.0f,1.0f,1.0f };
 			clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
 			vk::RenderPassBeginInfo render_pass_begin_info{
 				render_pass, framebuffer,
