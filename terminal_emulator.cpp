@@ -3,8 +3,6 @@
 #include "shader_path.hpp"
 
 #include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
 
 #include <set>
 #include <map>
@@ -448,7 +446,7 @@ private:
 class terminal_emulator {
 public:
 	terminal_emulator() {
-		GLFWwindow* window = window_manager.get_window();
+		GLFWwindow* window = m_window_manager.get_window();
 		m_render.init([window](VkInstance instance) {
 			VkSurfaceKHR surface;
 			assert(VK_SUCCESS == glfwCreateWindowSurface(instance, window, nullptr, &surface));
@@ -457,7 +455,7 @@ public:
 	}
 	void run() {
 		auto runs = std::array<std::function<run_result()>, 2>{
-			[&window_manager=window_manager]() { return window_manager.run(); },
+			[&window_manager=m_window_manager]() { return window_manager.run(); },
 			[&m_render=m_render]() { return m_render.run(); },
 		};
 		while (
@@ -467,7 +465,7 @@ public:
 			);
 	}
 private:
-	window_manager window_manager;
+	window_manager m_window_manager;
 	vulkan_render m_render;
 };
 
