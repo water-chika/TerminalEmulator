@@ -417,7 +417,6 @@ public:
 		return run_result::eContinue;
 	}
 	~vulkan_render() {
-		present_manager->wait_all();
 	}
 private:
 	vk::SharedDevice device;
