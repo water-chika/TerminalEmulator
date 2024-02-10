@@ -2,9 +2,27 @@
 
 #include <exception>
 #include <cassert>
+#include <map>
+#include <string>
+#include <stdexcept>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
+
+enum os{
+    eWindows,
+    eLinux
+};
+
+namespace build_info {
+    constexpr os runtime_os =
+#if WIN32
+	    os::eWindows
+#elif __unix__
+	    os::eLinux
+#endif
+	    ;
+};
 
 class font_loader {
 public:
@@ -12,7 +30,11 @@ public:
 		if (FT_Init_FreeType(&m_library)) {
 			throw std::runtime_error{ "failed to initialize font library" };
 		}
-		if (FT_New_Face(m_library, "C:\\Windows\\Fonts\\consola.ttf", 0, &m_face)) {
+		auto os_font_paths = std::map<os, std::string>{};
+		os_font_paths.emplace(os::eWindows, "C:/Windows/Fonts/consola.ttf");
+		os_font_paths.emplace(os::eLinux,   "/usr/share/fonts/gnu-free/FreeMono.otf");
+		auto font_path = os_font_paths[build_info::runtime_os];
+		if (FT_New_Face(m_library, font_path.c_str(), 0, &m_face)) {
 			throw std::runtime_error{ "failed to open font file" };
 		}
 		if (FT_Set_Char_Size(m_face, 0, 16 * 64, 512, 512)) {
