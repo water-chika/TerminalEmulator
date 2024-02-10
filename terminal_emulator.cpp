@@ -15,164 +15,163 @@
 class simple_draw_command{
 public:
     simple_draw_command(
-		vk::CommandBuffer cmd,
-		vk::RenderPass render_pass,
-		vk::PipelineLayout pipeline_layout,
-		vk::Pipeline pipeline,
-		vk::DescriptorSet descriptor_set,
-		vk::Framebuffer framebuffer,
-		vk::Extent2D swapchain_extent,
-		vk::DispatchLoaderDynamic dldid)
-		: m_cmd{ cmd } {
-			vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
-			cmd.begin(begin_info);
-			std::array<vk::ClearValue, 2> clear_values;
-			clear_values[0].color = vk::ClearColorValue{ 1.0f, 1.0f,1.0f,1.0f };
-			clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
-			vk::RenderPassBeginInfo render_pass_begin_info{
-				render_pass, framebuffer,
-				vk::Rect2D{vk::Offset2D{0,0},
-				swapchain_extent}, clear_values };
-			cmd.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
-			cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
-				pipeline);
-			cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-				pipeline_layout, 0, descriptor_set, nullptr);
-			//cmd.bindVertexBuffers(0, *vertex_buffer, { 0 });
-			cmd.setViewport(0, vk::Viewport(0, 0, swapchain_extent.width, swapchain_extent.height, 0, 1));
-			cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent));
-			//cmd.draw(3, 1, 0, 0);
-			cmd.drawMeshTasksEXT(1, 1, 1, dldid);
-			cmd.endRenderPass();
-			cmd.end();
-	}
-	auto get_command_buffer() {
-		return m_cmd;
-	}
+        vk::CommandBuffer cmd,
+        vk::RenderPass render_pass,
+        vk::PipelineLayout pipeline_layout,
+        vk::Pipeline pipeline,
+        vk::DescriptorSet descriptor_set,
+        vk::Framebuffer framebuffer,
+        vk::Extent2D swapchain_extent,
+        vk::DispatchLoaderDynamic dldid)
+        : m_cmd{ cmd } {
+            vk::CommandBufferBeginInfo begin_info{vk::CommandBufferUsageFlagBits::eSimultaneousUse};
+            cmd.begin(begin_info);
+            std::array<vk::ClearValue, 2> clear_values;
+            clear_values[0].color = vk::ClearColorValue{ 1.0f, 1.0f,1.0f,1.0f };
+            clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
+            vk::RenderPassBeginInfo render_pass_begin_info{
+                render_pass, framebuffer,
+                vk::Rect2D{vk::Offset2D{0,0},
+                swapchain_extent}, clear_values };
+            cmd.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
+            cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                pipeline);
+            cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                pipeline_layout, 0, descriptor_set, nullptr);
+            //cmd.bindVertexBuffers(0, *vertex_buffer, { 0 });
+            cmd.setViewport(0, vk::Viewport(0, 0, swapchain_extent.width, swapchain_extent.height, 0, 1));
+            cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent));
+            //cmd.draw(3, 1, 0, 0);
+            cmd.drawMeshTasksEXT(1, 1, 1, dldid);
+            cmd.endRenderPass();
+            cmd.end();
+    }
+    auto get_command_buffer() {
+        return m_cmd;
+    }
 private:
     vk::CommandBuffer m_cmd;
 };
 
 struct glfwContext
 {
-	glfwContext()
-	{
-		glfwInit();
-		glfwSetErrorCallback(
-			[](int error, const char* msg)
-			{
-				std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl;
-			}
-		);
-		assert(GLFW_TRUE == glfwVulkanSupported());
-	}
-	~glfwContext() {
-		glfwTerminate();
-	}
+    glfwContext()
+    {
+        glfwInit();
+        glfwSetErrorCallback(
+            [](int error, const char* msg)
+            {
+                std::cerr << "glfw: " << "(" << error << ") " << msg << std::endl;
+            }
+        );
+        assert(GLFW_TRUE == glfwVulkanSupported());
+    }
+    ~glfwContext() {
+        glfwTerminate();
+    }
 };
 
 enum class run_result {
-	eContinue,
-	eBreak,
+    eContinue,
+    eBreak,
 };
 
 class window_manager {
 public:
-	window_manager() : window{ create_window() } {
+    window_manager() : window{ create_window() } {
 
-	}
-	auto get_window() {
-		return window;
-	}
-	run_result run() {
-		glfwPollEvents();
-		return glfwWindowShouldClose(window) ? run_result::eBreak : run_result::eContinue;
-	}
+    }
+    auto get_window() {
+        return window;
+    }
+    run_result run() {
+        glfwPollEvents();
+        return glfwWindowShouldClose(window) ? run_result::eBreak : run_result::eContinue;
+    }
 private:
-	static GLFWwindow* create_window() {
-		uint32_t width = 1024, height = 1024;
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		return glfwCreateWindow(width, height, "Terminal Emulator", nullptr, nullptr);
-	}
-	glfwContext glfw_context;
-	GLFWwindow* window;
+    static GLFWwindow* create_window() {
+        uint32_t width = 1024, height = 1024;
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        return glfwCreateWindow(width, height, "Terminal Emulator", nullptr, nullptr);
+    }
+    glfwContext glfw_context;
+    GLFWwindow* window;
 };
 
 
 
 template<class T, int Dim0_size, int Dim1_size, int Dim = 2>
 class multidimention_array {
-	static_assert(Dim == 2);
+    static_assert(Dim == 2);
 public:
-	struct elem_ref {
-		using difference_type = int;
-		using value_type = T;
-		using pointer = T*;
-		using reference = T&;
-		using iterator_category = std::random_access_iterator_tag;
-		using iterator_concept = std::contiguous_iterator_tag;
-		auto operator++() {
-			if (x + 1 == Dim0_size) {
-				x = 0;
-				++y;
-			}
-			else {
-				++x;
-			}
-			return *this;
-		}
-		auto operator--() {
-			if (x == 0) {
-				x = Dim0_size - 1;
-				--y;
-			}
-			else {
-				--x;
-			}
-		}
-		auto& operator*() {
-			return m_array[std::pair{ x, y }];
-		}
-		auto operator-(elem_ref& rhs) {
-			return (rhs.y - y) * Dim1_size + rhs.x - x;
-		}
-		bool operator==(elem_ref rhs) {
-			return x == rhs.x && y == rhs.y;
-		}
-		multidimention_array& m_array;
-		int x;
-		int y;
-	};
-	using value_type = T;
-	auto begin() {
-		return elem_ref{ *this, 0, 0 };
-	}
-	auto end() {
-		return elem_ref{ *this, 0, Dim1_size };
-	}
-	auto size() {
-		return Dim0_size * Dim1_size;
-	}
-	T& operator[](std::pair<int, int> index) {
-		auto [x, y] = index;
-		return m_data[y][x];
-	}
+    struct elem_ref {
+        using difference_type = int;
+        using value_type = T;
+        using pointer = T*;
+        using reference = T&;
+        using iterator_category = std::random_access_iterator_tag;
+        using iterator_concept = std::contiguous_iterator_tag;
+        auto operator++() {
+            if (x + 1 == Dim0_size) {
+                x = 0;
+                ++y;
+            }
+            else {
+                ++x;
+            }
+            return *this;
+        }
+        auto operator--() {
+            if (x == 0) {
+                x = Dim0_size - 1;
+                --y;
+            }
+            else {
+                --x;
+            }
+        }
+        auto& operator*() {
+            return m_array[std::pair{ x, y }];
+        }
+        auto operator-(elem_ref& rhs) {
+            return (rhs.y - y) * Dim1_size + rhs.x - x;
+        }
+        bool operator==(elem_ref rhs) {
+            return x == rhs.x && y == rhs.y;
+        }
+        multidimention_array& m_array;
+        int x;
+        int y;
+    };
+    using value_type = T;
+    auto begin() {
+        return elem_ref{ *this, 0, 0 };
+    }
+    auto end() {
+        return elem_ref{ *this, 0, Dim1_size };
+    }
+    auto size() {
+        return Dim0_size * Dim1_size;
+    }
+    T& operator[](std::pair<int, int> index) {
+        auto [x, y] = index;
+        return m_data[y][x];
+    }
 private:
-	std::array<std::array<T, Dim0_size>, Dim1_size > m_data;
+    std::array<std::array<T, Dim0_size>, Dim1_size > m_data;
 };
 
 class fix_instance_destroy {
 public:
-	fix_instance_destroy()
-		: instance{ vulkan::shared::create_instance() }
-	{}
+    fix_instance_destroy()
+        : instance{ vulkan::shared::create_instance() }
+    {}
 protected:
-	vk::SharedInstance instance;
+    vk::SharedInstance instance;
 };
 
 class vulkan_render : fix_instance_destroy {
 public:
-	
 	void init(auto&& get_surface) {
 		auto physical_device{ vulkan::shared::select_physical_device(instance) };
 		{
@@ -419,27 +418,27 @@ public:
 	~vulkan_render() {
 	}
 private:
-	vk::SharedDevice device;
-	vk::SharedCommandPool command_pool;
-	vk::SharedSwapchainKHR swapchain;
-	vk::UniqueDescriptorPool descriptor_pool;
-	vk::SharedPipeline pipeline;
-	vk::SharedRenderPass render_pass;
-	std::shared_ptr<vulkan::present_manager> present_manager;
-	vk::SharedImage texture;
-	vk::SharedImageView texture_view;
-	vk::SharedDeviceMemory texture_memory;
-	vk::SharedBuffer char_indices_buffer;
-	vk::SharedDeviceMemory char_indices_buffer_memory;
-	vk::UniqueSampler sampler;
-	std::vector<vk::SharedImageView> imageViews;
-	std::vector<vk::UniqueSemaphore> render_complete_semaphores;
-	std::vector<vk::SharedImage> depth_buffers;
-	std::vector<vk::SharedImageView> depth_buffer_views;
-	std::vector<vk::SharedDeviceMemory> depth_buffer_memories;
-	std::vector<vk::SharedFramebuffer> framebuffers;
-	std::vector<vk::CommandBuffer> command_buffers;
-	vk::SharedQueue queue;
+    vk::SharedDevice device;
+    vk::SharedCommandPool command_pool;
+    vk::SharedSwapchainKHR swapchain;
+    vk::UniqueDescriptorPool descriptor_pool;
+    vk::SharedPipeline pipeline;
+    vk::SharedRenderPass render_pass;
+    std::shared_ptr<vulkan::present_manager> present_manager;
+    vk::SharedImage texture;
+    vk::SharedImageView texture_view;
+    vk::SharedDeviceMemory texture_memory;
+    vk::SharedBuffer char_indices_buffer;
+    vk::SharedDeviceMemory char_indices_buffer_memory;
+    vk::UniqueSampler sampler;
+    std::vector<vk::SharedImageView> imageViews;
+    std::vector<vk::UniqueSemaphore> render_complete_semaphores;
+    std::vector<vk::SharedImage> depth_buffers;
+    std::vector<vk::SharedImageView> depth_buffer_views;
+    std::vector<vk::SharedDeviceMemory> depth_buffer_memories;
+    std::vector<vk::SharedFramebuffer> framebuffers;
+    std::vector<vk::CommandBuffer> command_buffers;
+    vk::SharedQueue queue;
 };
 
 class terminal_emulator {
@@ -469,20 +468,20 @@ private:
 };
 
 int main() {
-	try {
-		terminal_emulator emulator;
-		emulator.run();
-	}
-	catch (vk::SystemError& err) {
-		std::cout << "vk::SystemError: " << err.what() << std::endl;
-		return -1;
-	}
-	catch (std::exception& err) {
-		std::cout << "std::exception: " << err.what() << std::endl;
-	}
-	catch (...) {
-		std::cout << "unknown error\n";
-		return -1;
-	}
-	return 0;
+    try {
+        terminal_emulator emulator;
+        emulator.run();
+    }
+    catch (vk::SystemError& err) {
+        std::cout << "vk::SystemError: " << err.what() << std::endl;
+        return -1;
+    }
+    catch (std::exception& err) {
+        std::cout << "std::exception: " << err.what() << std::endl;
+    }
+    catch (...) {
+        std::cout << "unknown error\n";
+        return -1;
+    }
+    return 0;
 }
