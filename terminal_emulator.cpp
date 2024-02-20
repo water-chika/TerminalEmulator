@@ -172,7 +172,7 @@ protected:
 
 class vulkan_render_prepare : fix_instance_destroy {
 public:
-    void init(auto&& get_surface) {
+    void init(auto&& get_surface, auto& terminal_buffer) {
         auto physical_device{ vulkan::shared::select_physical_device(instance) };
         {
             uint32_t graphicsQueueFamilyIndex = vulkan::shared::select_queue_family(physical_device);
@@ -235,9 +235,10 @@ public:
         }
 
         multidimention_array<int, 32, 32> char_indices_buf{};
-        std::string str = "hello world! Wow, do you think this is a good start? ...............abcdefghijklmnopqrstuvwxyz";
         std::set<char> char_set{};
-        std::ranges::copy(str, std::inserter(char_set, char_set.begin()));
+        for (auto ite = terminal_buffer.begin(); ite != terminal_buffer.end(); ++ite) {
+            char_set.emplace(*ite);
+        }
         std::vector<char> characters{};
         std::ranges::copy(char_set, std::back_inserter(characters));
         std::map<char, int> char_texture_indices;
@@ -247,7 +248,7 @@ public:
         std::vector<int> str_texture_indices{};
         {
             auto ite = char_indices_buf.begin();
-            for (auto c_ite = str.begin(); ite != char_indices_buf.end(), c_ite != str.end(); ++ite, ++c_ite) {
+            for (auto c_ite = terminal_buffer.begin(); ite != char_indices_buf.end(), c_ite != terminal_buffer.end(); ++ite, ++c_ite) {
                 *ite = char_texture_indices[*c_ite];
             }
         }
@@ -392,8 +393,9 @@ protected:
 
 class vulkan_render : public vulkan_render_prepare {
 public:
-    void init(auto&& get_surface) {
-        vulkan_render_prepare::init(std::forward<decltype(get_surface)>(get_surface));
+    void init(auto&& get_surface, auto& terminal_buffer) {
+        vulkan_render_prepare::init(std::forward<decltype(get_surface)>(get_surface),
+            terminal_buffer);
         present_manager = std::make_shared<vulkan::present_manager>(device, 10);
         auto texture_prepare_semaphore = present_manager->get_next();
         {
@@ -451,13 +453,19 @@ private:
 
 class terminal_emulator {
 public:
-    terminal_emulator() {
+    terminal_emulator() :
+        m_window_manager{}, m_render{}, m_buffer{} {
+        std::string str = "hello world! Wow, do you think this is a good start? ...............abcdefghijklmnopqrstuvwxyz";
+        auto ite = m_buffer.begin();
+        for (auto c_ite = str.begin(); ite != m_buffer.end(), c_ite != str.end(); ++ite, ++c_ite) {
+            *ite = *c_ite;
+        }
         GLFWwindow* window = m_window_manager.get_window();
         m_render.init([window](VkInstance instance) {
             VkSurfaceKHR surface;
             assert(VK_SUCCESS == glfwCreateWindowSurface(instance, window, nullptr, &surface));
             return surface;
-            });
+            }, m_buffer);
     }
     void run() {
         auto runs = std::array<std::function<run_result()>, 2>{
@@ -473,6 +481,7 @@ public:
 private:
     window_manager m_window_manager;
     vulkan_render m_render;
+    multidimention_array<char, 32, 32> m_buffer;
 };
 
 int main() {
