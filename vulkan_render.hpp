@@ -115,7 +115,7 @@ namespace vulkan {
     inline auto create_device(vk::PhysicalDevice physical_device, uint32_t graphicsQueueFamilyIndex) {
         float queuePriority = 0.0f;
         vk::DeviceQueueCreateInfo deviceQueueCreateInfo({}, graphicsQueueFamilyIndex, 1, &queuePriority);
-        std::array<const char*, 2> deviceExtensions{
+        std::array<std::string, 2> deviceExtensions{
             "VK_KHR_swapchain",
             "VK_EXT_mesh_shader",
         };
@@ -127,6 +127,8 @@ namespace vulkan {
             available_device_extensions,
             availables.begin(),
             [](auto&& exten) { return std::string{exten.extensionName.data()}; });
+        std::ranges::sort(deviceExtensions);
+        std::ranges::sort(availables);
         std::ranges::set_difference(
                 deviceExtensions, availables, 
                 std::back_inserter(nonavailable_device_extensions),
@@ -136,8 +138,15 @@ namespace vulkan {
         if (nonavailable_device_extensions.size() > 0) {
             throw std::runtime_error{"not supported device extensions: "s + nonavailable_device_extensions[0]};
         }
+        std::vector<const char*> device_extensions(deviceExtensions.size());
+        std::ranges::transform(
+            deviceExtensions,
+            device_extensions.begin(),
+            [](auto& ext) { return ext.data();  });
         vk::StructureChain device_create_info{
-            vk::DeviceCreateInfo{}.setQueueCreateInfos(deviceQueueCreateInfo).setPEnabledExtensionNames(deviceExtensions),
+            vk::DeviceCreateInfo{}
+            .setQueueCreateInfos(deviceQueueCreateInfo)
+            .setPEnabledExtensionNames(device_extensions),
             vk::PhysicalDeviceFeatures2{},
             vk::PhysicalDeviceMeshShaderFeaturesEXT{}.setMeshShader(true).setTaskShader(true),
             vk::PhysicalDeviceMaintenance4Features{}.setMaintenance4(true),
