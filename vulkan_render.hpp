@@ -123,7 +123,10 @@ namespace vulkan {
             physical_device.enumerateDeviceExtensionProperties();
         std::vector<std::string> nonavailable_device_extensions{};
         std::vector<std::string> availables(available_device_extensions.size());
-        std::ranges::transform(available_device_extensions, availables.begin(), [](auto&& exten) { return std::string{exten.extensionName};});
+        std::ranges::transform(
+            available_device_extensions,
+            availables.begin(),
+            [](auto&& exten) { return std::string{exten.extensionName.data()}; });
         std::ranges::set_difference(
                 deviceExtensions, availables, 
                 std::back_inserter(nonavailable_device_extensions),
