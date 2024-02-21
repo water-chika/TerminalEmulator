@@ -11,7 +11,6 @@
 #include <functional>
 
 
-
 class simple_draw_command{
 public:
     simple_draw_command(
@@ -348,32 +347,57 @@ public:
         };
         auto characters = generate_characters(terminal_buffer);
         assert(characters.size() != 0);
-        std::map<char, int> char_texture_indices;
-        std::ranges::for_each(from_0_count_n(characters.size()), [&characters, &char_texture_indices](auto i) {
-            char_texture_indices.emplace(characters[i], static_cast<int>(i));
-            });
-        std::vector<int> str_texture_indices{};
-        multidimention_array<int, 32, 32> char_indices_buf{};
-        std::transform(
-            terminal_buffer.begin(),
-            terminal_buffer.end(),
-            char_indices_buf.begin(),
-            [&char_texture_indices](auto c) {
-                return char_texture_indices[c];
-            });
+        auto generate_char_texture_indices = [](auto& characters) {
+            std::map<char, int> char_texture_indices;
+            std::ranges::for_each(from_0_count_n(characters.size()), [&characters, &char_texture_indices](auto i) {
+                char_texture_indices.emplace(characters[i], static_cast<int>(i));
+                });
+            return char_texture_indices;
+            };
+        auto char_texture_indices{
+            generate_char_texture_indices(characters)
+        };
+        auto generate_char_indices_buf{
+            [](auto& terminal_buffer, auto& char_texture_indices) {
+                multidimention_array<int, 32, 32> char_indices_buf{};
+                std::transform(
+                    terminal_buffer.begin(),
+                    terminal_buffer.end(),
+                    char_indices_buf.begin(),
+                    [&char_texture_indices](auto c) {
+                        return char_texture_indices[c];
+                    });
+                return char_indices_buf;
+            }
+        };
+        auto char_indices_buf{
+            generate_char_indices_buf(terminal_buffer, char_texture_indices)
+        };
 
         vulkan::task_stage_info task_stage_info{
             task_shader_path, "main",
         };
-        int char_count = characters.size();
-        auto char_count_map_entry = vk::SpecializationMapEntry{}.setConstantID(555).setOffset(0).setSize(sizeof(char_count));
-        auto char_count_specialization =
-            vk::SpecializationInfo{}
-            .setMapEntries(char_count_map_entry)
-            .setPData(&char_count)
-            .setDataSize(sizeof(char_count));
+        class char_count_specialization {
+        public:
+            char_count_specialization(std::vector<char>& characters)
+                :
+                m_count{ static_cast<int>(characters.size()) },
+                map_entry{ vk::SpecializationMapEntry{}.setConstantID(555).setOffset(0).setSize(sizeof(m_count))},
+                specialization_info{ vk::SpecializationInfo{}
+                .setMapEntries(map_entry).setDataSize(sizeof(m_count)).setPData(&this->m_count) }
+            {
+            }
+        public:
+            int m_count;
+            vk::SpecializationMapEntry map_entry;
+            vk::SpecializationInfo specialization_info;
+        };
+        char_count_specialization specialization{
+            characters
+        };
+
         vulkan::mesh_stage_info mesh_stage_info{
-            mesh_shader_path, "main", char_count_specialization
+            mesh_shader_path, "main", specialization.specialization_info
         };
         vulkan::geometry_stage_info geometry_stage_info{
             geometry_shader_path, "main",
