@@ -179,6 +179,7 @@ private:
     std::array<std::array<T, Dim0_size>, Dim1_size > m_data;
 };
 
+
 class fix_instance_destroy {
 public:
     fix_instance_destroy()
@@ -267,7 +268,6 @@ public:
             device };
     }
     auto create_descriptor_pool(auto device, auto descriptor_pool_size) {
-
         return device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo{}.setPoolSizes(descriptor_pool_size).setMaxSets(1));
     }
     auto get_descriptor_pool_size() {
@@ -324,20 +324,30 @@ public:
         vk::SharedPipelineLayout pipeline_layout{
             create_pipeline_layout(device, descriptor_set_layout)
         };
-        {
-            auto descriptor_pool_size{
-                get_descriptor_pool_size()
-            };
-            descriptor_pool = create_descriptor_pool(device, descriptor_pool_size);
-            descriptor_set = allocate_descriptor_set(device, descriptor_set_layout);
-        }
+        auto descriptor_pool_size{
+            get_descriptor_pool_size()
+        };
+        descriptor_pool = create_descriptor_pool(device, descriptor_pool_size);
+        descriptor_set = allocate_descriptor_set(device, descriptor_set_layout);
 
-        std::set<char> char_set{};
-        for (auto c : terminal_buffer) {
-            char_set.emplace(c);
-        }
-        std::vector<char> characters{};
-        std::ranges::copy(char_set, std::back_inserter(characters));
+        auto generate_char_set = [](auto& terminal_buffer) {
+            std::set<char> char_set{};
+            std::for_each(
+                    terminal_buffer.begin(),
+                    terminal_buffer.end(),
+                    [&char_set](auto c){
+                        char_set.emplace(c);
+                    });
+            return char_set;
+        };
+        auto generate_characters = [generate_char_set](auto& terminal_buffer) {
+            auto char_set = generate_char_set(terminal_buffer);
+            std::vector<char> characters{};
+            std::ranges::copy(char_set, std::back_inserter(characters));
+            return characters;
+        };
+        auto characters = generate_characters(terminal_buffer);
+        assert(characters.size() != 0);
         std::map<char, int> char_texture_indices;
         std::ranges::for_each(from_0_count_n(characters.size()), [&characters, &char_texture_indices](auto i) {
             char_texture_indices.emplace(characters[i], static_cast<int>(i));
@@ -386,7 +396,7 @@ public:
             auto [vk_texture, vk_texture_memory, vk_texture_view] =
                 vulkan::create_texture(*physical_device, *device,
                     vk::Format::eR8Unorm,
-                    font_width * std::size(char_set), line_height,
+                    font_width * std::size(characters), line_height,
                     [&font_loader, font_width, font_height, line_height, &characters](char* ptr, int pitch) {
                         std::ranges::for_each(from_0_count_n(characters.size()),
                         [&font_loader, font_width, font_height, line_height, &characters, ptr, pitch](auto i) {
