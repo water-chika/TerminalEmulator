@@ -111,7 +111,14 @@ public:
         using reference = T&;
         using iterator_category = std::random_access_iterator_tag;
         using iterator_concept = std::contiguous_iterator_tag;
-        auto operator++() {
+
+        auto& operator=(const elem_ref& rhs) {
+            m_array = rhs.m_array;
+            x = rhs.x;
+            y = rhs.y;
+            return *this;
+        }
+        auto& operator++() {
             if (x + 1 == Dim0_size) {
                 x = 0;
                 ++y;
@@ -121,7 +128,12 @@ public:
             }
             return *this;
         }
-        auto operator--() {
+        auto operator++(int) {
+            auto ret = *this;
+            ++*this;
+            return ret;
+        }
+        auto& operator--() {
             if (x == 0) {
                 x = Dim0_size - 1;
                 --y;
@@ -129,14 +141,20 @@ public:
             else {
                 --x;
             }
+            return *this;
+        }
+        auto operator--(int) {
+            auto ret = *this;
+            --*this;
+            return ret;
         }
         auto& operator*() {
             return m_array[std::pair{ x, y }];
         }
-        auto operator-(elem_ref& rhs) {
+        auto operator-(const elem_ref& rhs) const{
             return (rhs.y - y) * Dim1_size + rhs.x - x;
         }
-        bool operator==(elem_ref rhs) {
+        bool operator==(elem_ref rhs) const {
             return x == rhs.x && y == rhs.y;
         }
         multidimention_array& m_array;
@@ -314,10 +332,9 @@ public:
             descriptor_set = allocate_descriptor_set(device, descriptor_set_layout);
         }
 
-        multidimention_array<int, 32, 32> char_indices_buf{};
         std::set<char> char_set{};
-        for (auto ite = terminal_buffer.begin(); ite != terminal_buffer.end(); ++ite) {
-            char_set.emplace(*ite);
+        for (auto c : terminal_buffer) {
+            char_set.emplace(c);
         }
         std::vector<char> characters{};
         std::ranges::copy(char_set, std::back_inserter(characters));
@@ -326,12 +343,14 @@ public:
             char_texture_indices.emplace(characters[i], static_cast<int>(i));
             });
         std::vector<int> str_texture_indices{};
-        {
-            auto ite = char_indices_buf.begin();
-            for (auto c_ite = terminal_buffer.begin(); ite != char_indices_buf.end(), c_ite != terminal_buffer.end(); ++ite, ++c_ite) {
-                *ite = char_texture_indices[*c_ite];
-            }
-        }
+        multidimention_array<int, 32, 32> char_indices_buf{};
+        std::transform(
+            terminal_buffer.begin(),
+            terminal_buffer.end(),
+            char_indices_buf.begin(),
+            [&char_texture_indices](auto c) {
+                return char_texture_indices[c];
+            });
 
         vulkan::task_stage_info task_stage_info{
             task_shader_path, "main",
