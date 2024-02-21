@@ -172,42 +172,60 @@ protected:
 
 class vulkan_render_prepare : fix_instance_destroy {
 public:
-    void init(auto&& get_surface, auto& terminal_buffer) {
-        auto physical_device{ vulkan::shared::select_physical_device(instance) };
-        {
-            uint32_t graphicsQueueFamilyIndex = vulkan::shared::select_queue_family(physical_device);
-
-            device = vk::SharedDevice{ vulkan::shared::create_device(physical_device, graphicsQueueFamilyIndex) };
-            queue = vk::SharedQueue{ device->getQueue(graphicsQueueFamilyIndex, 0), device };
-
-            {
-                vk::CommandPoolCreateInfo commandPoolCreateInfo({}, graphicsQueueFamilyIndex);
-                command_pool = vk::SharedCommandPool(device->createCommandPool(commandPoolCreateInfo), device);
-            }
-        }
-
-        vk::SharedSurfaceKHR surface{};
-        {
-            vk::SurfaceKHR vk_surface = get_surface(*instance);
-            surface = vk::SharedSurfaceKHR{ vk_surface, instance };
-        }
-
-        vk::Format color_format{};
-        vk::Format depth_format{};
-        {
-            std::vector<vk::SurfaceFormatKHR> formats = physical_device->getSurfaceFormatsKHR(*surface);
-            color_format = (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
-            depth_format = vk::Format::eD16Unorm;
-        }
-        vk::Extent2D swapchain_extent{};
-        {
-            auto [vk_swapchain, extent] = vulkan::create_swapchain(*physical_device, *device, *surface, color_format);
-            swapchain = vk::SharedSwapchainKHR(vk_swapchain, device, surface);
-            swapchain_extent = extent;
-        }
-
-        render_pass = vk::SharedRenderPass{ vulkan::create_render_pass(*device, color_format, depth_format), device };
-        auto descriptor_set_bindings = std::array{
+    auto select_physical_device(auto instance) {
+        return vulkan::shared::select_physical_device(instance);
+    }
+    auto select_queue_family(auto physical_device) {
+        return vulkan::shared::select_queue_family(physical_device);
+    }
+    auto create_device(auto physical_device, auto queue_family_index) {
+        return vk::SharedDevice{ vulkan::shared::create_device(physical_device, queue_family_index) };
+    }
+    auto get_queue(auto device, auto queue_family_index) {
+        return vk::SharedQueue{ device->getQueue(queue_family_index, 0), device };
+    }
+    auto create_command_pool(auto device, auto queue_family_index) {
+        vk::CommandPoolCreateInfo commandPoolCreateInfo({}, queue_family_index);
+        return vk::SharedCommandPool(device->createCommandPool(commandPoolCreateInfo), device);
+    }
+    auto get_surface(auto instance, auto&& get_surface_from_extern) {
+        vk::SurfaceKHR vk_surface = get_surface_from_extern(*instance);
+        return vk::SharedSurfaceKHR{ vk_surface, instance };
+    }
+    auto select_color_format(auto physical_device, auto surface) {
+        std::vector<vk::SurfaceFormatKHR> formats = physical_device->getSurfaceFormatsKHR(*surface);
+        return (formats[0].format == vk::Format::eUndefined) ? vk::Format::eR8G8B8A8Unorm : formats[0].format;
+    }
+    auto select_depth_format() {
+        return vk::Format::eD16Unorm;
+    }
+    auto get_surface_capabilities(auto physical_device, auto surface) {
+        return physical_device->getSurfaceCapabilitiesKHR(*surface);
+    }
+    auto get_surface_extent(auto surface_capabilities) {
+        return surface_capabilities.currentExtent;
+    }
+    auto create_swapchain(
+        auto physical_device,
+        auto device,
+        auto surface,
+        auto surface_capabilities,
+        auto color_format) {
+        return vk::SharedSwapchainKHR(
+            vulkan::create_swapchain(
+                *physical_device,
+                *device,
+                *surface,
+                surface_capabilities,
+                color_format),
+            device,
+            surface);
+    }
+    auto create_render_pass(auto device, auto color_format, auto depth_format) {
+        return vk::SharedRenderPass{ vulkan::create_render_pass(*device, color_format, depth_format), device };
+    }
+    auto create_descriptor_set_bindings() {
+        return std::array{
             vk::DescriptorSetLayoutBinding{}
             .setBinding(0)
             .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
@@ -219,19 +237,81 @@ public:
             .setStageFlags(vk::ShaderStageFlagBits::eMeshEXT)
             .setDescriptorCount(1),
         };
+    }
+    auto create_descriptor_set_layout(auto device, auto descriptor_set_bindings) {
+        return device->createDescriptorSetLayoutUnique(
+            vk::DescriptorSetLayoutCreateInfo{}
+            .setBindings(descriptor_set_bindings));
+    }
+    auto create_pipeline_layout(auto device, auto& descriptor_set_layout) {
+        return vk::SharedPipelineLayout{
+            vulkan::create_pipeline_layout(*device, *descriptor_set_layout),
+            device };
+    }
+    auto create_descriptor_pool(auto device, auto descriptor_pool_size) {
 
-        vk::UniqueDescriptorSetLayout descriptor_set_layout{};
-        vk::DescriptorSet descriptor_set{};
-        vk::SharedPipelineLayout pipeline_layout{};
-        {
-            descriptor_set_layout = device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo{}.setBindings(descriptor_set_bindings));
-            pipeline_layout = vk::SharedPipelineLayout{ vulkan::create_pipeline_layout(*device, *descriptor_set_layout), device };
-            auto descriptor_pool_size = std::array{
+        return device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo{}.setPoolSizes(descriptor_pool_size).setMaxSets(1));
+    }
+    auto get_descriptor_pool_size() {
+        return std::array{
             vk::DescriptorPoolSize{}.setType(vk::DescriptorType::eCombinedImageSampler).setDescriptorCount(1),
             vk::DescriptorPoolSize{}.setType(vk::DescriptorType::eUniformBuffer).setDescriptorCount(1),
+        };
+    }
+    auto allocate_descriptor_set(auto device, auto& descriptor_set_layout) {
+        return std::move(
+            device->allocateDescriptorSets(
+                vk::DescriptorSetAllocateInfo{}
+                .setDescriptorPool(*descriptor_pool)
+                .setSetLayouts(*descriptor_set_layout))
+            .front()
+            );
+    }
+    void init(auto&& get_surface_from_extern, auto& terminal_buffer) {
+        auto physical_device{
+            select_physical_device(instance)
+        };
+        auto queue_family_index{
+            select_queue_family(physical_device)
+        };
+        device = create_device(physical_device, queue_family_index);
+        queue = get_queue(device, queue_family_index);
+        command_pool = create_command_pool(device, queue_family_index);
+        vk::SharedSurfaceKHR surface{
+            get_surface(instance, get_surface_from_extern)
+        };
+        vk::Format color_format{
+            select_color_format(physical_device, surface)
+        };
+        vk::Format depth_format{
+            select_depth_format()
+        };
+        auto surface_capabilities{
+            get_surface_capabilities(physical_device, surface)
+        };
+        swapchain = {
+            create_swapchain(physical_device, device, surface, surface_capabilities, color_format)
+        };
+        vk::Extent2D swapchain_extent{
+            get_surface_extent(surface_capabilities)
+        };
+        render_pass = create_render_pass(device, color_format, depth_format);
+        auto descriptor_set_bindings{
+            create_descriptor_set_bindings()
+        };
+        vk::UniqueDescriptorSetLayout descriptor_set_layout{
+            create_descriptor_set_layout(device, descriptor_set_bindings)
+        };
+        vk::DescriptorSet descriptor_set{};
+        vk::SharedPipelineLayout pipeline_layout{
+            create_pipeline_layout(device, descriptor_set_layout)
+        };
+        {
+            auto descriptor_pool_size{
+                get_descriptor_pool_size()
             };
-            descriptor_pool = device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo{}.setPoolSizes(descriptor_pool_size).setMaxSets(1));
-            descriptor_set = std::move(device->allocateDescriptorSets(vk::DescriptorSetAllocateInfo{}.setDescriptorPool(*descriptor_pool).setSetLayouts(*descriptor_set_layout)).front());
+            descriptor_pool = create_descriptor_pool(device, descriptor_pool_size);
+            descriptor_set = allocate_descriptor_set(device, descriptor_set_layout);
         }
 
         multidimention_array<int, 32, 32> char_indices_buf{};

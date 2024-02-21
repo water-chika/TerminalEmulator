@@ -527,8 +527,7 @@ namespace vulkan {
                 nullptr, &viewport_state_create_info, &rasterization_state_create_info, &multisample_state_create_info, 
                 &depth_stencil_state_create_info, &color_blend_state_create_info, &dynamic_state_create_info, layout, render_pass });
     }
-    inline auto create_swapchain(vk::PhysicalDevice physical_device, vk::Device device, vk::SurfaceKHR surface, vk::Format format) {
-        vk::SurfaceCapabilitiesKHR surfaceCapabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
+    inline auto create_swapchain(vk::PhysicalDevice physical_device, vk::Device device, vk::SurfaceKHR surface, auto surfaceCapabilities, vk::Format format) {
         vk::Extent2D swapchainExtent = surfaceCapabilities.currentExtent;
         assert(swapchainExtent.width != UINT32_MAX && swapchainExtent.height != UINT32_MAX);
         uint32_t min_image_count = std::max(surfaceCapabilities.maxImageCount,surfaceCapabilities.minImageCount);
@@ -561,7 +560,7 @@ namespace vulkan {
             true,
             nullptr);
         assert(swapchainCreateInfo.minImageCount >= surfaceCapabilities.minImageCount);
-        return std::tuple{ device.createSwapchainKHR(swapchainCreateInfo), swapchainExtent };
+        return device.createSwapchainKHR(swapchainCreateInfo);
     }
     // reuse_semaphore will be used again, so we need a fence to notify cpu that it is not used by gpu.
     struct reuse_semaphore {
