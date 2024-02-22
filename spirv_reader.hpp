@@ -4,23 +4,16 @@
 #include <filesystem>
 #include <cassert>
 
-#ifdef WIN32
-#include <Windows.h>
-#endif
-#ifdef __unix__
-#include <sys/mman.h>
-#include <fcntl.h>
-#include <unistd.h>
-#endif
+#include "spirv_reader_os.hpp"
 
-class spirv_file {
+class spirv_file : protected spirv_reader_os_member{
 public:
     spirv_file(std::filesystem::path path) {
 #ifdef WIN32
         hFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
         assert(hFile != INVALID_HANDLE_VALUE);
         hMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
-        assert(hFile != INVALID_HANDLE_VALUE);
+        assert(hMapping != INVALID_HANDLE_VALUE);
         mmaped_ptr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
         assert(mmaped_ptr != nullptr);
         m_size = GetFileSize(hFile, NULL);
@@ -54,16 +47,4 @@ public:
     size_t size() const {
         return m_size / 4;
     }
-private:
-#ifdef WIN32
-    HANDLE hFile;
-    HANDLE hMapping;
-    void* mmaped_ptr;
-    size_t m_size; // count of byte
-#endif
-#ifdef __unix__
-    int m_file_descriptor;
-    void* mmaped_ptr;
-    size_t m_size; // count of byte
-#endif
 };

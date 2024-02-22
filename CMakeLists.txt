@@ -6,12 +6,20 @@ find_package(Vulkan REQUIRED)
 
 add_subdirectory(glfw)
 
+add_executable(generate_spirv_reader_include generate_spirv_reader_include.cpp)
+set_property(TARGET generate_spirv_reader_include PROPERTY CXX_STANDARD 23)
+add_custom_command(COMMENT "Generating spirv_reader_os.hpp"
+                    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/include/spirv_reader_os.hpp
+                    COMMAND generate_spirv_reader_include ${CMAKE_CURRENT_BINARY_DIR}/include/spirv_reader_os.hpp
+                    DEPENDS generate_spirv_reader_include)
+
 add_executable(terminal_emulator
     terminal_emulator.cpp
     vulkan_render.hpp
     spirv_reader.hpp
     font_loader.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/include/shader_path.hpp
+    ${CMAKE_CURRENT_BINARY_DIR}/include/spirv_reader_os.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/vertex.spv
     ${CMAKE_CURRENT_BINARY_DIR}/geometry.spv
     ${CMAKE_CURRENT_BINARY_DIR}/fragment.spv
