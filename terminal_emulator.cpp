@@ -203,7 +203,7 @@ public:
         return vk::SharedQueue{ device->getQueue(queue_family_index, 0), device };
     }
     auto create_command_pool(auto device, auto queue_family_index) {
-        vk::CommandPoolCreateInfo commandPoolCreateInfo({}, queue_family_index);
+        vk::CommandPoolCreateInfo commandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eResetCommandBuffer, queue_family_index);
         return vk::SharedCommandPool(device->createCommandPool(commandPoolCreateInfo), device);
     }
     auto get_surface(auto instance, auto&& get_surface_from_extern) {
@@ -284,67 +284,115 @@ public:
             .front()
             );
     }
-    void init(auto&& get_surface_from_extern, auto& terminal_buffer) {
-        auto physical_device{
-            select_physical_device(instance)
+    auto create_pipeline(auto device, auto render_pass, auto pipeline_layout, auto& characters) {
+        vulkan::task_stage_info task_stage_info{
+            task_shader_path, "main",
         };
-        auto queue_family_index{
-            select_queue_family(physical_device)
+        class char_count_specialization {
+        public:
+            char_count_specialization(std::vector<char>& characters)
+                :
+                m_count{ static_cast<int>(characters.size()) },
+                map_entry{ vk::SpecializationMapEntry{}.setConstantID(555).setOffset(0).setSize(sizeof(m_count)) },
+                specialization_info{ vk::SpecializationInfo{}
+                .setMapEntries(map_entry).setDataSize(sizeof(m_count)).setPData(&this->m_count) }
+            {
+            }
+        public:
+            int m_count;
+            vk::SpecializationMapEntry map_entry;
+            vk::SpecializationInfo specialization_info;
         };
-        device = create_device(physical_device, queue_family_index);
-        queue = get_queue(device, queue_family_index);
-        command_pool = create_command_pool(device, queue_family_index);
-        vk::SharedSurfaceKHR surface{
-            get_surface(instance, get_surface_from_extern)
+        char_count_specialization specialization{
+            characters
         };
-        vk::Format color_format{
-            select_color_format(physical_device, surface)
-        };
-        vk::Format depth_format{
-            select_depth_format()
-        };
-        auto surface_capabilities{
-            get_surface_capabilities(physical_device, surface)
-        };
-        swapchain = {
-            create_swapchain(physical_device, device, surface, surface_capabilities, color_format)
-        };
-        vk::Extent2D swapchain_extent{
-            get_surface_extent(surface_capabilities)
-        };
-        render_pass = create_render_pass(device, color_format, depth_format);
-        auto descriptor_set_bindings{
-            create_descriptor_set_bindings()
-        };
-        vk::UniqueDescriptorSetLayout descriptor_set_layout{
-            create_descriptor_set_layout(device, descriptor_set_bindings)
-        };
-        vk::DescriptorSet descriptor_set{};
-        vk::SharedPipelineLayout pipeline_layout{
-            create_pipeline_layout(device, descriptor_set_layout)
-        };
-        auto descriptor_pool_size{
-            get_descriptor_pool_size()
-        };
-        descriptor_pool = create_descriptor_pool(device, descriptor_pool_size);
-        descriptor_set = allocate_descriptor_set(device, descriptor_set_layout);
 
+        vulkan::mesh_stage_info mesh_stage_info{
+            mesh_shader_path, "main", specialization.specialization_info
+        };
+        vulkan::geometry_stage_info geometry_stage_info{
+            geometry_shader_path, "main",
+        };
+        return vk::SharedPipeline{
+            vulkan::create_pipeline(*device,
+                    task_stage_info,
+                    mesh_stage_info,
+                    fragment_shader_path, *render_pass, *pipeline_layout).value, device };
+    }
+    auto create_font_texture(auto physical_device, auto device, auto characters) {
+        font_loader font_loader{};
+        uint32_t font_width = 32, font_height = 32;
+        uint32_t line_height = font_height * 2;
+        font_loader.set_char_size(font_width, font_height);
+        auto [vk_texture, vk_texture_memory, vk_texture_view] =
+            vulkan::create_texture(*physical_device, *device,
+                vk::Format::eR8Unorm,
+                font_width * std::size(characters), line_height,
+                [&font_loader, font_width, font_height, line_height, &characters](char* ptr, int pitch) {
+                    std::ranges::for_each(from_0_count_n(characters.size()),
+                    [&font_loader, font_width, font_height, line_height, &characters, ptr, pitch](auto i) {
+                            font_loader.render_char(characters[i]);
+                            auto glyph = font_loader.get_glyph();
+                            uint32_t start_row = font_height - glyph->bitmap_top - 1;
+                            assert(start_row + glyph->bitmap.rows < line_height);
+                            for (int row = 0; row < glyph->bitmap.rows; row++) {
+                                for (int x = 0; x < glyph->bitmap.width; x++) {
+                                    ptr[(start_row + row) * pitch + glyph->bitmap_left + i * font_width + x] =
+                                        glyph->bitmap.buffer[row * glyph->bitmap.pitch + x];
+                                }
+                            }
+                        });
+                });
+        auto texture = vk::SharedImage{
+            vk_texture, device };
+        auto texture_memory = vk::SharedDeviceMemory{ vk_texture_memory, device };
+        auto texture_view = vk::SharedImageView{ vk_texture_view, device };
+        return std::tuple{ texture, texture_memory, texture_view };
+    }
+    void update_descriptor_set(auto descriptor_set, auto texture_view, auto& sampler, auto& char_indices_buffer) {
+        auto texture_image_info =
+            vk::DescriptorImageInfo{}
+            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+            .setImageView(*texture_view)
+            .setSampler(*sampler);
+        auto char_texture_indices_info =
+            vk::DescriptorBufferInfo{}
+            .setBuffer(*char_indices_buffer)
+            .setOffset(0)
+            .setRange(vk::WholeSize);
+        auto descriptor_set_write = std::array{
+            vk::WriteDescriptorSet{}
+            .setDstBinding(0)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setImageInfo(texture_image_info)
+            .setDstSet(descriptor_set),
+            vk::WriteDescriptorSet{}
+            .setDstBinding(1)
+            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+            .setBufferInfo(char_texture_indices_info)
+            .setDstSet(descriptor_set),
+        };
+        device->updateDescriptorSets(descriptor_set_write, nullptr);
+    }
+    void create_and_update_terminal_buffer_relate_data(
+        auto descriptor_set, auto& sampler, auto& terminal_buffer,
+        auto& imageViews, auto& command_buffers) {
         auto generate_char_set = [](auto& terminal_buffer) {
             std::set<char> char_set{};
             std::for_each(
-                    terminal_buffer.begin(),
-                    terminal_buffer.end(),
-                    [&char_set](auto c){
-                        char_set.emplace(c);
-                    });
+                terminal_buffer.begin(),
+                terminal_buffer.end(),
+                [&char_set](auto c) {
+                    char_set.emplace(c);
+                });
             return char_set;
-        };
+            };
         auto generate_characters = [generate_char_set](auto& terminal_buffer) {
             auto char_set = generate_char_set(terminal_buffer);
             std::vector<char> characters{};
             std::ranges::copy(char_set, std::back_inserter(characters));
             return characters;
-        };
+            };
         auto characters = generate_characters(terminal_buffer);
         assert(characters.size() != 0);
         auto generate_char_texture_indices = [](auto& characters) {
@@ -373,74 +421,17 @@ public:
         auto char_indices_buf{
             generate_char_indices_buf(terminal_buffer, char_texture_indices)
         };
-
-        vulkan::task_stage_info task_stage_info{
-            task_shader_path, "main",
+        auto descriptor_set_bindings{
+            create_descriptor_set_bindings()
         };
-        class char_count_specialization {
-        public:
-            char_count_specialization(std::vector<char>& characters)
-                :
-                m_count{ static_cast<int>(characters.size()) },
-                map_entry{ vk::SpecializationMapEntry{}.setConstantID(555).setOffset(0).setSize(sizeof(m_count))},
-                specialization_info{ vk::SpecializationInfo{}
-                .setMapEntries(map_entry).setDataSize(sizeof(m_count)).setPData(&this->m_count) }
-            {
-            }
-        public:
-            int m_count;
-            vk::SpecializationMapEntry map_entry;
-            vk::SpecializationInfo specialization_info;
+        vk::UniqueDescriptorSetLayout descriptor_set_layout{
+            create_descriptor_set_layout(device, descriptor_set_bindings)
         };
-        char_count_specialization specialization{
-            characters
+        vk::SharedPipelineLayout pipeline_layout{
+            create_pipeline_layout(device, descriptor_set_layout)
         };
-
-        vulkan::mesh_stage_info mesh_stage_info{
-            mesh_shader_path, "main", specialization.specialization_info
-        };
-        vulkan::geometry_stage_info geometry_stage_info{
-            geometry_shader_path, "main",
-        };
-        pipeline = vk::SharedPipeline{
-            vulkan::create_pipeline(*device,
-                    task_stage_info,
-                    mesh_stage_info,
-                    fragment_shader_path, *render_pass, *pipeline_layout).value, device };
-
-        std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
-
-
-
-        font_loader font_loader{};
-        uint32_t font_width = 32, font_height = 32;
-        uint32_t line_height = font_height * 2;
-        font_loader.set_char_size(font_width, font_height);
-        {
-            auto [vk_texture, vk_texture_memory, vk_texture_view] =
-                vulkan::create_texture(*physical_device, *device,
-                    vk::Format::eR8Unorm,
-                    font_width * std::size(characters), line_height,
-                    [&font_loader, font_width, font_height, line_height, &characters](char* ptr, int pitch) {
-                        std::ranges::for_each(from_0_count_n(characters.size()),
-                        [&font_loader, font_width, font_height, line_height, &characters, ptr, pitch](auto i) {
-                            font_loader.render_char(characters[i]);
-                            auto glyph = font_loader.get_glyph();
-                            uint32_t start_row = font_height - glyph->bitmap_top - 1;
-                            assert(start_row + glyph->bitmap.rows < line_height);
-                            for (int row = 0; row < glyph->bitmap.rows; row++) {
-                                for (int x = 0; x < glyph->bitmap.width; x++) {
-                                    ptr[(start_row + row) * pitch + glyph->bitmap_left + i * font_width + x] =
-                                        glyph->bitmap.buffer[row * glyph->bitmap.pitch + x];
-                                }
-                            }
-                            });
-                    });
-            texture = vk::SharedImage{
-                vk_texture, device };
-            texture_memory = vk::SharedDeviceMemory{ vk_texture_memory, device };
-            texture_view = vk::SharedImageView{ vk_texture_view, device };
-        }
+        pipeline = create_pipeline(device, render_pass, pipeline_layout, characters);
+        std::tie(texture, texture_memory, texture_view) = create_font_texture(physical_device, device, characters);
         {
             auto [vk_char_indices_buffer, vk_char_indices_buffer_memory, vk_char_indices_buffer_size] =
                 vulkan::create_uniform_buffer(*physical_device, *device,
@@ -448,27 +439,53 @@ public:
             char_indices_buffer = vk::SharedBuffer{ vk_char_indices_buffer, device };
             char_indices_buffer_memory = vk::SharedDeviceMemory{ vk_char_indices_buffer_memory, device };
         }
-
-        sampler = device->createSamplerUnique(vk::SamplerCreateInfo{});
-        auto texture_image_info = vk::DescriptorImageInfo{}.setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setImageView(*texture_view).setSampler(*sampler);
-        auto char_texture_indices_info = vk::DescriptorBufferInfo{}.setBuffer(*char_indices_buffer).setOffset(0).setRange(vk::WholeSize);
-        auto descriptor_set_write = std::array{
-            vk::WriteDescriptorSet{}
-            .setDstBinding(0)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setImageInfo(texture_image_info)
-            .setDstSet(descriptor_set),
-            vk::WriteDescriptorSet{}
-            .setDstBinding(1)
-            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-            .setBufferInfo(char_texture_indices_info)
-            .setDstSet(descriptor_set),
+        update_descriptor_set(descriptor_set, texture_view, sampler, char_indices_buffer);
+        vk::DispatchLoaderDynamic dldid(*instance, vkGetInstanceProcAddr, *device);
+        for (integer_less_equal<decltype(imageViews.size())> i{ 0, imageViews.size() }; i < imageViews.size(); i++) {
+            simple_draw_command draw_command{
+                command_buffers[i],
+                *render_pass,
+                *pipeline_layout,
+                *pipeline,
+                descriptor_set,
+                *framebuffers[i],
+                swapchain_extent, dldid };
+        }
+    }
+    void init(auto&& get_surface_from_extern, auto& terminal_buffer) {
+        p_terminal_buffer = &terminal_buffer;
+        physical_device = {
+            select_physical_device(instance)
         };
-        device->updateDescriptorSets(descriptor_set_write, nullptr);
-
+        auto queue_family_index{
+            select_queue_family(physical_device)
+        };
+        device = create_device(physical_device, queue_family_index);
+        queue = get_queue(device, queue_family_index);
+        command_pool = create_command_pool(device, queue_family_index);
+        vk::SharedSurfaceKHR surface{
+            get_surface(instance, get_surface_from_extern)
+        };
+        vk::Format color_format{
+            select_color_format(physical_device, surface)
+        };
+        vk::Format depth_format{
+            select_depth_format()
+        };
+        auto surface_capabilities{
+            get_surface_capabilities(physical_device, surface)
+        };
+        swapchain = {
+            create_swapchain(physical_device, device, surface, surface_capabilities, color_format)
+        };
+        swapchain_extent = {
+            get_surface_extent(surface_capabilities)
+        };
+        std::vector<vk::Image> swapchainImages = device->getSwapchainImagesKHR(*swapchain);
         imageViews.reserve(swapchainImages.size());
         vk::ImageViewCreateInfo imageViewCreateInfo({}, {},
             vk::ImageViewType::e2D, color_format, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 });
+        render_pass = create_render_pass(device, color_format, depth_format);
         for (auto image : swapchainImages) {
             imageViewCreateInfo.image = image;
             auto image_view = device->createImageView(imageViewCreateInfo);
@@ -486,27 +503,48 @@ public:
                         std::vector{image_view, depth_buffer_view}, swapchain_extent), device
                 });
         }
+        auto descriptor_set_bindings{
+            create_descriptor_set_bindings()
+        };
+        descriptor_set_layout = {
+            create_descriptor_set_layout(device, descriptor_set_bindings)
+        };
+        vk::SharedPipelineLayout pipeline_layout{
+            create_pipeline_layout(device, descriptor_set_layout)
+        };
+        auto descriptor_pool_size{
+            get_descriptor_pool_size()
+        };
+        descriptor_pool = create_descriptor_pool(device, descriptor_pool_size);
+        descriptor_set = allocate_descriptor_set(device, descriptor_set_layout);
+        sampler = device->createSamplerUnique(vk::SamplerCreateInfo{});
 
-        vk::CommandBufferAllocateInfo commandBufferAllocateInfo(*command_pool, vk::CommandBufferLevel::ePrimary, swapchainImages.size());
-        auto buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
-        command_buffers.resize(swapchainImages.size());
-        vk::DispatchLoaderDynamic dldid(*instance, vkGetInstanceProcAddr, *device);
-        for (integer_less_equal<decltype(swapchainImages.size())> i{ 0, swapchainImages.size() }; i < swapchainImages.size(); i++) {
-            simple_draw_command draw_command{ buffers[i], *render_pass, *pipeline_layout, *pipeline, descriptor_set, *framebuffers[i], swapchain_extent, dldid };
-            command_buffers[i] = draw_command.get_command_buffer();
-        }
+        vk::CommandBufferAllocateInfo commandBufferAllocateInfo(
+            *command_pool, vk::CommandBufferLevel::ePrimary, imageViews.size());
+        command_buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
+        create_and_update_terminal_buffer_relate_data(
+            descriptor_set, sampler, terminal_buffer, imageViews, command_buffers);
 
         // There should be some commands wait for texture load semaphore.
         // There will be a BUG, fix it!
     }
+    void notify_update() {
+        create_and_update_terminal_buffer_relate_data(descriptor_set, sampler, *p_terminal_buffer,
+            imageViews, command_buffers);
+    }
 
 protected:
+    multidimention_array<char, 32, 32>* p_terminal_buffer;
+    vk::SharedPhysicalDevice physical_device;
     vk::SharedDevice device;
     vk::SharedCommandPool command_pool;
     vk::SharedSwapchainKHR swapchain;
     vk::UniqueDescriptorPool descriptor_pool;
+    vk::UniqueDescriptorSetLayout descriptor_set_layout;
+    vk::DescriptorSet descriptor_set;
     vk::SharedPipeline pipeline;
     vk::SharedRenderPass render_pass;
+    vk::Extent2D swapchain_extent;
 
     vk::SharedImage texture;
     vk::SharedImageView texture_view;
@@ -526,10 +564,7 @@ protected:
 
 class vulkan_render : public vulkan_render_prepare {
 public:
-    void init(auto&& get_surface, auto& terminal_buffer) {
-        vulkan_render_prepare::init(std::forward<decltype(get_surface)>(get_surface),
-            terminal_buffer);
-        present_manager = std::make_shared<vulkan::present_manager>(device, 10);
+    void set_texture_image_layout() {
         auto texture_prepare_semaphore = present_manager->get_next();
         {
             vk::CommandBuffer init_command_buffer{ device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*command_pool)).front() };
@@ -545,6 +580,12 @@ public:
             queue->submit2(vk::SubmitInfo2{}.setCommandBufferInfos(command_submit_info).setSignalSemaphoreInfos(signal_semaphore_info));
             queue->submit2(vk::SubmitInfo2{}.setWaitSemaphoreInfos(signal_semaphore_info), texture_prepare_semaphore.fence);
         }
+    }
+    void init(auto&& get_surface, auto& terminal_buffer) {
+        vulkan_render_prepare::init(std::forward<decltype(get_surface)>(get_surface),
+            terminal_buffer);
+        present_manager = std::make_shared<vulkan::present_manager>(device, 10);
+        set_texture_image_layout();
     }
     run_result run() {
         auto reused_acquire_image_semaphore = present_manager->get_next();
@@ -580,6 +621,11 @@ public:
         }
         return run_result::eContinue;
     }
+    void notify_update() {
+        present_manager->wait_all();
+        vulkan_render_prepare::notify_update();
+        set_texture_image_layout();
+    }
 private:
     std::shared_ptr<vulkan::present_manager> present_manager;
 };
@@ -599,6 +645,8 @@ public:
             assert(VK_SUCCESS == glfwCreateWindowSurface(instance, window, nullptr, &surface));
             return surface;
             }, m_buffer);
+        m_buffer[std::pair{ 0,0 }] = 'T';
+        m_render.notify_update();
     }
     void run() {
         auto runs = std::array<std::function<run_result()>, 2>{
