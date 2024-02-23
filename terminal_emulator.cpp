@@ -82,10 +82,22 @@ enum class run_result {
 class window_manager {
 public:
     window_manager() : window{ create_window() } {
-
+        window_map.emplace(window, this);
+        glfwSetCharCallback(window, character_callback);
     }
     auto get_window() {
         return window;
+    }
+    void set_process_character_fun(auto&& fun) {
+        process_character_fun = fun;
+    }
+    void process_character(uint32_t codepoint) {
+        std::cout << codepoint;
+        process_character_fun(codepoint);
+    }
+    static void character_callback(GLFWwindow* window, unsigned int codepoint) {
+        auto manager = window_map[window];
+        manager->process_character(codepoint);
     }
     run_result run() {
         glfwPollEvents();
@@ -99,8 +111,10 @@ private:
     }
     glfwContext glfw_context;
     GLFWwindow* window;
+    static std::map<GLFWwindow*, window_manager*> window_map;
+    std::function<void(uint32_t)> process_character_fun;
 };
-
+std::map<GLFWwindow*, window_manager*> window_manager::window_map;
 
 
 template<class T, int Dim0_size, int Dim1_size, int Dim = 2>
@@ -661,6 +675,10 @@ public:
                 return run_result::eContinue;
             }
         };
+        m_window_manager.set_process_character_fun([this](uint32_t code) {
+            m_buffer[{0, 1}] = code;
+            m_render.notify_update();
+            });
         struct run_fun {
             std::function<run_result()> fun;
             std::chrono::nanoseconds duration;
