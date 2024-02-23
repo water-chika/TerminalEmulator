@@ -4,11 +4,15 @@
 
 #include <GLFW/glfw3.h>
 
+#undef min
 #include <set>
 #include <map>
 #include <memory>
 #include <utility>
 #include <functional>
+#include <chrono>
+#include <thread>
+#include <strstream>
 
 
 class simple_draw_command{
@@ -629,16 +633,13 @@ public:
 private:
     std::shared_ptr<vulkan::present_manager> present_manager;
 };
-
+using namespace std::literals;
 class terminal_emulator {
 public:
     terminal_emulator() :
         m_window_manager{}, m_render{}, m_buffer{} {
         std::string str = "hello world! Wow, do you think this is a good start? ...............abcdefghijklmnopqrstuvwxyz";
-        auto ite = m_buffer.begin();
-        for (auto c_ite = str.begin(); ite != m_buffer.end(), c_ite != str.end(); ++ite, ++c_ite) {
-            *ite = *c_ite;
-        }
+        std::copy(str.begin(), str.end(), m_buffer.begin());
         GLFWwindow* window = m_window_manager.get_window();
         m_render.init([window](VkInstance instance) {
             VkSurfaceKHR surface;
@@ -649,15 +650,41 @@ public:
         m_render.notify_update();
     }
     void run() {
-        auto runs = std::array<std::function<run_result()>, 2>{
-            [&window_manager=m_window_manager]() { return window_manager.run(); },
-            [&m_render=m_render]() { return m_render.run(); },
+        auto update_buffer{
+            [&m_buffer = m_buffer, &m_render=m_render]() {
+                std::string t = "test"s;
+                std::strstream str_str;
+                str_str << std::chrono::steady_clock::now().time_since_epoch();
+                str_str >> t;
+                std::copy(t.begin(), t.end(), m_buffer.begin());
+                m_render.notify_update();
+                return run_result::eContinue;
+            }
         };
-        while (
-            std::ranges::all_of(runs, [](auto f) {
-            return f() == run_result::eContinue;
-            })
-            );
+        struct run_fun {
+            std::function<run_result()> fun;
+            std::chrono::nanoseconds duration;
+        };
+        auto runs = std::array{
+            run_fun{[&window_manager = m_window_manager]() { return window_manager.run(); }, 1ms},
+            run_fun{[&m_render = m_render]() { return m_render.run(); }, 1000ms/60},
+            run_fun{update_buffer, 1s},
+        };
+
+        std::array<std::chrono::time_point<std::chrono::steady_clock>, runs.size()> next_runtime{};
+        std::ranges::transform(runs, next_runtime.begin(), [](auto& run) {
+            return std::chrono::steady_clock::now() + run.duration;
+            });
+        for (run_result res{ run_result::eContinue }; res == run_result::eContinue; ) {
+            auto min_runtime_index = std::ranges::min(
+                from_0_count_n(next_runtime.size()), [&next_runtime](auto l, auto r) {
+                    return next_runtime[l] < next_runtime[r]; });
+            auto min_runtime = next_runtime[min_runtime_index];
+            std::this_thread::sleep_until(min_runtime);
+            auto& run_f = runs[min_runtime_index];
+            next_runtime[min_runtime_index] = std::chrono::steady_clock::now() + run_f.duration;
+            res = run_f.fun();
+        }
     }
 private:
     window_manager m_window_manager;
