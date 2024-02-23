@@ -4,3 +4,6 @@
 [submodule "freetype"]
 	path = freetype
 	url = https://gitlab.freedesktop.org/freetype/freetype.git
+[submodule "boost"]
+	path = boost
+	url = https://github.com/boostorg/boost.git
