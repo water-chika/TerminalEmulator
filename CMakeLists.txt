@@ -65,3 +65,9 @@ configure_file(
 add_subdirectory(freetype)
 
 target_link_libraries(terminal_emulator PUBLIC freetype)
+
+add_executable(sh sh.cpp)
+
+add_dependencies(terminal_emulator sh)
+
+add_subdirectory(boost)
