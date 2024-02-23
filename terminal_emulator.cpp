@@ -679,6 +679,50 @@ public:
             m_buffer[{0, 1}] = code;
             m_render.notify_update();
             });
+
+        SECURITY_ATTRIBUTES secu_attr{};
+        secu_attr.bInheritHandle = TRUE;
+        HANDLE read_pipe, write_pipe;
+        if (!CreatePipe(&read_pipe, &write_pipe, &secu_attr, 1024)) {
+            throw std::runtime_error{ "can't create pipe" };
+        }
+        auto read_process_output{
+            [read_pipe]() {
+                char buf[8];
+                DWORD read_count{ 0 };
+                if (ReadFile(read_pipe, buf, sizeof(buf), &read_count, NULL)) {
+                    std::cout << read_count << std::endl;
+                }
+                return run_result::eContinue;
+            }
+        };
+
+        STARTUPINFO si;
+        PROCESS_INFORMATION pi;
+
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        ZeroMemory(&pi, sizeof(pi));
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdOutput = write_pipe;
+        si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+        // Start the child process. 
+        if (!CreateProcess("C:\\work_space\\Vulkan\\Vulkan-Debug\\build\\Debug\\sh.exe",   // No module name (use command line)
+            NULL,        // Command line
+            NULL,           // Process handle not inheritable
+            NULL,           // Thread handle not inheritable
+            TRUE,          // Set handle inheritance to FALSE
+            0,              // No creation flags
+            NULL,           // Use parent's environment block
+            NULL,           // Use parent's starting directory 
+            &si,            // Pointer to STARTUPINFO structure
+            &pi)           // Pointer to PROCESS_INFORMATION structure
+            )
+        {
+            printf("CreateProcess failed (%d).\n", GetLastError());
+            return;
+        }
         struct run_fun {
             std::function<run_result()> fun;
             std::chrono::nanoseconds duration;
@@ -687,6 +731,7 @@ public:
             run_fun{[&window_manager = m_window_manager]() { return window_manager.run(); }, 1ms},
             run_fun{[&m_render = m_render]() { return m_render.run(); }, 1000ms/60},
             run_fun{update_buffer, 1s},
+            run_fun{read_process_output, 1s},
         };
 
         std::array<std::chrono::time_point<std::chrono::steady_clock>, runs.size()> next_runtime{};
