@@ -12,12 +12,6 @@ void print_include(std::ostream& out, auto& include_paths) {
     [&out](auto& path){
         out << "#include <" << path << ">" << std::endl;
     });
-
-    if (build_info::runtime_os == os::eWindows) {
-        out << "int open(const char*, ...){ return 0;}" << std::endl;
-        out << "int lseek(int, ...){ return 0;}" << std::endl;
-        out << "void* mmap(int, ...){ return NULL;}" << std::endl;
-    }
 }
 void print_os_relate_member(std::ostream& out, auto& members, auto& valid_uses) {
     out << "class spirv_reader_os_member{" << std::endl;

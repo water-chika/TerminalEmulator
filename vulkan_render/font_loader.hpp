@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include <stdexcept>
+#include <vector>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
