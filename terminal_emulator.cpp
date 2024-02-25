@@ -1,3 +1,4 @@
+#include "boost/asio.hpp"
 #include "vulkan_render.hpp"
 #include "font_loader.hpp"
 
@@ -88,17 +89,32 @@ public:
         m_render.notify_update();
     }
     void run() {
-        auto update_buffer{
-            [&m_buffer = m_buffer, &m_render=m_render]() {
-                std::string t = "test"s;
-                std::strstream str_str;
-                str_str << std::chrono::steady_clock::now().time_since_epoch();
-                str_str >> t;
-                std::copy(t.begin(), t.end(), m_buffer.begin());
-                m_render.notify_update();
-                return run_result::eContinue;
+        boost::asio::io_context io{};
+        boost::asio::steady_timer timer{ io, 1ms };
+        std::function<void(const boost::system::error_code)> timer_fun{
+            [&timer, &timer_fun, &window_manager=m_window_manager, &io](const boost::system::error_code& err_code) {
+                if (window_manager.run() == run_result::eBreak) {
+                    io.stop();
+                }
+                else {
+                    timer.expires_after(1ms);
+                    timer.async_wait(timer_fun);
+                }
             }
         };
+        timer.async_wait(
+            timer_fun
+        );
+        boost::asio::steady_timer render_timer{ io, 1000ms / 60 };
+        std::function<void(const boost::system::error_code)> render_timer_complete{
+            [&timer = render_timer, &complete = render_timer_complete, &render = m_render](const boost::system::error_code& err_code) {
+                render.run();
+                timer.expires_after(1000ms / 60);
+                timer.async_wait(complete);
+            }
+        };
+        render_timer.async_wait(render_timer_complete);
+        io.run();
         m_window_manager.set_process_character_fun([this](uint32_t code) {
             m_buffer[{0, 1}] = code;
             m_render.notify_update();
@@ -146,31 +162,6 @@ public:
         {
             printf("CreateProcess failed (%d).\n", GetLastError());
             return;
-        }
-        struct run_fun {
-            std::function<run_result()> fun;
-            std::chrono::nanoseconds duration;
-        };
-        auto runs = std::array{
-            run_fun{[&window_manager = m_window_manager]() { return window_manager.run(); }, 1ms},
-            run_fun{[&m_render = m_render]() { return m_render.run(); }, 1000ms/60},
-            run_fun{update_buffer, 1s},
-            run_fun{read_process_output, 1s},
-        };
-
-        std::array<std::chrono::time_point<std::chrono::steady_clock>, runs.size()> next_runtime{};
-        std::ranges::transform(runs, next_runtime.begin(), [](auto& run) {
-            return std::chrono::steady_clock::now() + run.duration;
-            });
-        for (run_result res{ run_result::eContinue }; res == run_result::eContinue; ) {
-            auto min_runtime_index = std::ranges::min(
-                from_0_count_n(next_runtime.size()), [&next_runtime](auto l, auto r) {
-                    return next_runtime[l] < next_runtime[r]; });
-            auto min_runtime = next_runtime[min_runtime_index];
-            std::this_thread::sleep_until(min_runtime);
-            auto& run_f = runs[min_runtime_index];
-            next_runtime[min_runtime_index] = std::chrono::steady_clock::now() + run_f.duration;
-            res = run_f.fun();
         }
     }
 private:
