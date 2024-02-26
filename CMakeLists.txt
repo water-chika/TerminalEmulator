@@ -4,7 +4,9 @@ project(TerminalEmulator)
 
 find_package(Vulkan REQUIRED)
 
-find_package(Boost 1.70 REQUIRED COMPONENTS system PATHS ${CMAKE_CURRENT_SOURCE_DIR}/boost_1_79_0/stage/lib/cmake/)
+set(BOOST_PATH "boost/stage/" CACHE PATH
+    "boost library path")
+find_package(Boost 1.70 REQUIRED COMPONENTS system PATHS ${BOOST_PATH})
 
 add_subdirectory(glfw)
 
