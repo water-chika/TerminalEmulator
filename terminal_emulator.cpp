@@ -48,6 +48,11 @@ public:
     auto get_window() {
         return window;
     }
+    auto create_surface(vk::Instance instance) {
+        VkSurfaceKHR surface{};
+        auto res = glfwCreateWindowSurface(instance, window, NULL, &surface);
+        return surface;
+    }
     void set_process_character_fun(auto&& fun) {
         process_character_fun = fun;
     }
@@ -83,11 +88,9 @@ public:
         m_window_manager{}, m_render{}, m_buffer{} {
         std::string str = "hello world! Wow, do you think this is a good start? ...............abcdefghijklmnopqrstuvwxyz";
         std::copy(str.begin(), str.end(), m_buffer.begin());
-        GLFWwindow* window = m_window_manager.get_window();
-        m_render.init([window](VkInstance instance) {
-            VkSurfaceKHR surface;
-            assert(VK_SUCCESS == glfwCreateWindowSurface(instance, window, nullptr, &surface));
-            return surface;
+
+        m_render.init([this](vk::Instance instance) {
+            return m_window_manager.create_surface(instance);
             }, m_buffer);
         m_buffer[std::pair{ 0,0 }] = 'T';
         m_render.notify_update();
