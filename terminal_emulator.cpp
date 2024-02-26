@@ -17,6 +17,10 @@
 #include "multidimention_array.hpp"
 #include "run_result.hpp"
 
+bool contains(const auto&& range, const auto&& v) {
+    return range.end() != range.find(v);
+}
+
 struct glfwContext
 {
     glfwContext()
@@ -153,11 +157,13 @@ public:
         OVERLAPPED overlapped{};
         overlapped.hEvent = connect_event;
         if (!ConnectNamedPipe(named_pipe_handle, &overlapped)) {
-            auto valid_codes = std::set{
-                ERROR_IO_PENDING,
-                ERROR_PIPE_CONNECTED
-            };
-            assert(valid_codes.end() != valid_codes.find(GetLastError()));
+            assert(
+                contains(
+                    std::set{
+                        ERROR_IO_PENDING,
+                        ERROR_PIPE_CONNECTED
+                    },
+                    GetLastError()));
         }
         HANDLE write_pipe_handle = CreateFile(
             pipe_name,
