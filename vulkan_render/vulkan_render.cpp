@@ -32,7 +32,8 @@ run_result vulkan_render::run()
         std::array<vk::SwapchainKHR, 1> swapchains{*swapchain};
         std::array<uint32_t, 1> indices{image_index};
         vk::PresentInfoKHR present_info{wait_semaphores, swapchains, indices};
-        assert(queue->presentKHR(present_info) == vk::Result::eSuccess);
+        auto res = queue->presentKHR(present_info);
+        assert(res == vk::Result::eSuccess);
     }
     return run_result::eContinue;
 }
