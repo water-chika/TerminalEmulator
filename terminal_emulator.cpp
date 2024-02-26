@@ -114,7 +114,6 @@ public:
             }
         };
         render_timer.async_wait(render_timer_complete);
-        io.run();
         m_window_manager.set_process_character_fun([this](uint32_t code) {
             m_buffer[{0, 1}] = code;
             m_render.notify_update();
@@ -122,30 +121,63 @@ public:
 
         SECURITY_ATTRIBUTES secu_attr{};
         secu_attr.bInheritHandle = TRUE;
-        HANDLE read_pipe, write_pipe;
-        if (!CreatePipe(&read_pipe, &write_pipe, &secu_attr, 1024)) {
-            throw std::runtime_error{ "can't create pipe" };
-        }
-        auto read_process_output{
-            [read_pipe]() {
-                char buf[8];
-                DWORD read_count{ 0 };
-                if (ReadFile(read_pipe, buf, sizeof(buf), &read_count, NULL)) {
-                    std::cout << read_count << std::endl;
-                }
-                return run_result::eContinue;
+        const char pipe_name[] = "\\\\.\\pipe\\terminal_emulator";
+        HANDLE named_pipe_handle = CreateNamedPipe(pipe_name,
+            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE,
+            1,
+            256,
+            256,
+            0,
+            &secu_attr
+        );
+        assert(named_pipe_handle != INVALID_HANDLE_VALUE);
+        boost::asio::readable_pipe read_pipe{ io};
+        read_pipe.assign(named_pipe_handle);
+        std::array<char, 128> read_buf{};
+        std::function<void(const boost::system::error_code&, std::size_t)> read_complete{
+            [this, &read_buf, &read_pipe, &read_complete](const auto& error, auto bytes_transferred) {
+                std::copy(read_buf.begin(),
+                    read_buf.begin() + bytes_transferred,
+                    m_buffer.begin());
+                m_render.notify_update();
+                read_pipe.async_read_some(boost::asio::mutable_buffer{ read_buf.data(), read_buf.size() }, read_complete);
             }
         };
-
+        read_pipe.async_read_some(
+            boost::asio::mutable_buffer{read_buf.data(), read_buf.size()},
+            read_complete
+            );
+        HANDLE connect_event = CreateEvent(&secu_attr, TRUE, TRUE, NULL);
+        assert(connect_event != NULL);
+        OVERLAPPED overlapped{};
+        overlapped.hEvent = connect_event;
+        if (!ConnectNamedPipe(named_pipe_handle, &overlapped)) {
+            auto valid_codes = std::set{
+                ERROR_IO_PENDING,
+                ERROR_PIPE_CONNECTED
+            };
+            assert(valid_codes.end() != valid_codes.find(GetLastError()));
+        }
+        HANDLE write_pipe_handle = CreateFile(
+            pipe_name,
+            GENERIC_WRITE,
+            0,
+            &secu_attr,
+            OPEN_EXISTING,
+            0,
+            NULL
+        );
+        auto err = GetLastError();
+        assert(write_pipe_handle != INVALID_HANDLE_VALUE);
         STARTUPINFO si;
         PROCESS_INFORMATION pi;
-
         ZeroMemory(&si, sizeof(si));
         si.cb = sizeof(si);
         ZeroMemory(&pi, sizeof(pi));
         si.dwFlags |= STARTF_USESTDHANDLES;
         si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-        si.hStdOutput = write_pipe;
+        si.hStdOutput = write_pipe_handle;
         si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
         // Start the child process. 
         if (!CreateProcess("Debug\\sh.exe",   // No module name (use command line)
@@ -163,6 +195,7 @@ public:
             printf("CreateProcess failed (%d).\n", GetLastError());
             return;
         }
+        io.run();
     }
 private:
     window_manager m_window_manager;

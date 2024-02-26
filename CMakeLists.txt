@@ -24,5 +24,6 @@ target_link_libraries(terminal_emulator PUBLIC vulkan_render glfw Boost::system)
 set_property(TARGET terminal_emulator PROPERTY CXX_STANDARD 23)
 
 add_executable(sh sh.cpp)
+set_property(TARGET sh PROPERTY CXX_STANDARD 23)
 
 add_dependencies(terminal_emulator sh)

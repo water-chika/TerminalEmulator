@@ -48,6 +48,10 @@ public:
 			c = ' ';
 		}
 		auto glyph_index = FT_Get_Char_Index(m_face, c);
+		if (glyph_index == 0) {
+			c = '?';
+			glyph_index = FT_Get_Char_Index(m_face, c);
+		}
 		assert(glyph_index != 0);
 		if (FT_Load_Glyph(m_face, glyph_index, FT_LOAD_DEFAULT)) {
 			throw std::runtime_error{ "failed to load glyph" };
