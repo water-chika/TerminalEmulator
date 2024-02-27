@@ -38,6 +38,10 @@ public:
 		}
         m_glyph = m_face->glyph;
     }
+	~font_loader() {
+		FT_Done_Face(m_face);
+		FT_Done_FreeType(m_library);
+	}
 	void set_char_size(uint32_t width, uint32_t height) {
 		if (FT_Set_Char_Size(m_face, width<<6, height<<6, 72, 72)) {
 			throw std::runtime_error{ "failed to set font size" };
