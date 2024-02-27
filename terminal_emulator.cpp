@@ -200,46 +200,9 @@ public:
             boost::asio::mutable_buffer{read_buf.data(), read_buf.size()},
             read_complete
             );
-        HANDLE write_pipe_handle = CreateFile(
-            pipe_name.c_str(),
-            GENERIC_WRITE,
-            0,
-            &secu_attr,
-            OPEN_EXISTING,
-            0,
-            NULL
-        );
-        auto err = GetLastError();
-        assert(write_pipe_handle != INVALID_HANDLE_VALUE);
-        STARTUPINFO si;
-        PROCESS_INFORMATION pi;
-        ZeroMemory(&si, sizeof(si));
-        si.cb = sizeof(si);
-        ZeroMemory(&pi, sizeof(pi));
-        si.dwFlags |= STARTF_USESTDHANDLES;
-        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-        si.hStdOutput = write_pipe_handle;
-        si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-        // Start the child process. 
-        if (!CreateProcess("Debug\\sh.exe",   // No module name (use command line)
-            NULL,        // Command line
-            NULL,           // Process handle not inheritable
-            NULL,           // Thread handle not inheritable
-            TRUE,          // Set handle inheritance to FALSE
-            0,              // No creation flags
-            NULL,           // Use parent's environment block
-            NULL,           // Use parent's starting directory 
-            &si,            // Pointer to STARTUPINFO structure
-            &pi)           // Pointer to PROCESS_INFORMATION structure
-            )
-        {
-            printf("CreateProcess failed (%d).\n", GetLastError());
-            return;
-        }
+        windows::opened_named_pipe write_pipe_handle{ pipe_name };
+        windows::process shell{ write_pipe_handle };
         io.run();
-        CloseHandle(write_pipe_handle);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
     }
 private:
     window_manager m_window_manager;

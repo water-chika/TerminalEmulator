@@ -36,6 +36,23 @@ namespace windows {
         }
         return handle;
     }
+    HANDLE create_file(const std::string path) {
+        SECURITY_ATTRIBUTES secu_attr{};
+        secu_attr.bInheritHandle = TRUE;
+        auto handle = CreateFile(
+            path.c_str(),
+            GENERIC_WRITE,
+            0,
+            &secu_attr,
+            OPEN_EXISTING,
+            0,
+            NULL
+        );
+        if (handle == INVALID_HANDLE_VALUE) {
+            throw_last_error();
+        }
+        return handle;
+    }
 
     class named_pipe {
     public:
@@ -67,5 +84,61 @@ namespace windows {
         }
     private:
         HANDLE m_handle;
+    };
+
+    class opened_named_pipe {
+    public:
+        opened_named_pipe(const std::string path) {
+            m_handle = create_file(path);
+        }
+        ~opened_named_pipe() {
+            close_handle(m_handle);
+        }
+
+        auto native_handle() {
+            return m_handle;
+        }
+    private:
+        HANDLE m_handle;
+    };
+
+    class process {
+    public:
+        process(opened_named_pipe& out) {
+            STARTUPINFO si;
+            PROCESS_INFORMATION pi;
+            ZeroMemory(&si, sizeof(si));
+            si.cb = sizeof(si);
+            ZeroMemory(&pi, sizeof(pi));
+            si.dwFlags |= STARTF_USESTDHANDLES;
+            si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+            si.hStdOutput = out.native_handle();
+            si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+            // Start the child process. 
+            if (!CreateProcess("Debug\\sh.exe",   // No module name (use command line)
+                NULL,        // Command line
+                NULL,           // Process handle not inheritable
+                NULL,           // Thread handle not inheritable
+                TRUE,          // Set handle inheritance to FALSE
+                0,              // No creation flags
+                NULL,           // Use parent's environment block
+                NULL,           // Use parent's starting directory 
+                &si,            // Pointer to STARTUPINFO structure
+                &pi)           // Pointer to PROCESS_INFORMATION structure
+                )
+            {
+                printf("CreateProcess failed (%d).\n", GetLastError());
+                return;
+            }
+            m_process = pi.hProcess;
+            m_thread = pi.hThread;
+        }
+        ~process() {
+            close_handle(m_thread);
+            close_handle(m_process);
+        }
+    private:
+        HANDLE m_process;
+        HANDLE m_thread;
     };
 }
