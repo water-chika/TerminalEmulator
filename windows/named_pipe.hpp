@@ -104,7 +104,7 @@ namespace windows {
 
     class process {
     public:
-        process(opened_named_pipe& out) {
+        process(std::filesystem::path path, opened_named_pipe& out) {
             STARTUPINFO si;
             PROCESS_INFORMATION pi;
             ZeroMemory(&si, sizeof(si));
@@ -115,7 +115,7 @@ namespace windows {
             si.hStdOutput = out.native_handle();
             si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
             // Start the child process. 
-            if (!CreateProcess("Debug\\sh.exe",   // No module name (use command line)
+            if (!CreateProcess(path.c_str(),   // No module name (use command line)
                 NULL,        // Command line
                 NULL,           // Process handle not inheritable
                 NULL,           // Thread handle not inheritable
@@ -141,4 +141,22 @@ namespace windows {
         HANDLE m_process;
         HANDLE m_thread;
     };
+    struct pipe_handles{
+        HANDLE input;
+        HANDLE output;
+    };
+    auto create_pipe() {
+        SECURITY_ATTRIBUTES secu_attr{};
+        secu_attr.bInheritHandle = TRUE;
+        std::stringstream pipe_name_stream;
+        pipe_name_stream << "\\\\.\\pipe\\terminal_emulator-" << std::chrono::steady_clock::now().time_since_epoch();
+        std::string pipe_name = std::move(pipe_name_stream).str();
+        HANDLE input = windows::create_named_pipe(pipe_name);
+        HANDLE output = create_file(pipe_name);
+        return pipe_handles{input, output};
+    }
+    auto create_process(std::filesystem::path path, out) {
+        windows::process{path, out};
+    }
 }
+using namespace windows;
