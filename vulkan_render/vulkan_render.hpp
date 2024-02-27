@@ -1020,7 +1020,7 @@ public:
     }
 
 protected:
-    multidimention_array<char, 32, 32>* p_terminal_buffer;
+    multidimention_array<char, 32, 16>* p_terminal_buffer;
     vk::SharedPhysicalDevice physical_device;
     vk::SharedDevice device;
     vk::SharedCommandPool command_pool;

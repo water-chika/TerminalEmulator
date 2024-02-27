@@ -1,6 +1,6 @@
 #pragma once
 
-template<class T, int Dim0_size, int Dim1_size, int Dim = 2>
+template<class T, size_t Dim0_size, size_t Dim1_size, size_t Dim = 2>
 class multidimention_array {
     static_assert(Dim == 2);
 public:
@@ -51,6 +51,13 @@ public:
         auto& operator*() {
             return m_array[std::pair{ x, y }];
         }
+        auto operator+(const int i) const {
+            elem_ref res{ m_array, x,y };
+            res.x += i;
+            res.y += res.x / Dim0_size;
+            res.x %= Dim0_size;
+            return res;
+        }
         auto operator-(const elem_ref& rhs) const{
             return (rhs.y - y) * Dim1_size + rhs.x - x;
         }
@@ -68,8 +75,14 @@ public:
     auto end() {
         return elem_ref{ *this, 0, Dim1_size };
     }
-    auto size() {
+    auto size() const {
         return Dim0_size * Dim1_size;
+    }
+    constexpr auto get_dim0_size() const {
+        return Dim0_size;
+    }
+    constexpr auto get_dim1_size() const {
+        return Dim1_size;
     }
     T& operator[](std::pair<int, int> index) {
         auto [x, y] = index;

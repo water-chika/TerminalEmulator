@@ -13,13 +13,11 @@
 #include <chrono>
 #include <thread>
 #include <strstream>
+#include <algorithm>
 
 #include "multidimention_array.hpp"
 #include "run_result.hpp"
 
-bool contains(const auto&& range, const auto&& v) {
-    return range.end() != range.find(v);
-}
 
 struct glfwContext
 {
@@ -81,18 +79,74 @@ private:
 };
 std::map<GLFWwindow*, window_manager*> window_manager::window_map;
 
+class terminal_buffer_manager {
+public:
+    auto& get_buffer() {
+        return m_buffer;
+    }
+    void append_string(const std::string& str) {
+        auto line_begin = str.begin();
+        while (true) {
+            auto line_end = std::find(line_begin, str.end(), '\n');
+            std::string_view line{line_begin, line_end};
+            append_str_data(line);
+            if (line_end == str.end()) {
+                break;
+            }
+            line_begin = line_end + 1;
+            new_line();
+        }
+    }
+    void append_line(const std::string_view str) {
+        append_str_data(str);
+        new_line();
+    }
+    void new_line() {
+        auto& [x, y] = m_cursor_pos;
+        auto leave_size = m_buffer.get_dim0_size() - m_cursor_pos.first;
+        auto current_pos = y * 32 + x;
+        std::for_each(m_buffer.begin() + current_pos, m_buffer.begin() + current_pos + leave_size, [](auto& c) {
+            c = ' ';
+            });
+        m_cursor_pos.second = (m_cursor_pos.second + 1) % m_buffer.get_dim1_size();
+        m_cursor_pos.first = 0;
+    }
+    void append_str_data(const std::string_view str) {
+        auto& [x, y] = m_cursor_pos;
+        auto current_pos = y * 32 + x;
+        assert(m_buffer.size() > current_pos);
+        auto leave_size = m_buffer.size() - current_pos;
+        auto count = std::min(str.size(), leave_size);
+        std::copy(str.begin(),
+            str.begin() + count,
+            m_buffer.begin() + current_pos);
+        if (str.size() > leave_size) {
+            auto count = str.size() - leave_size;
+            std::copy(str.begin() + leave_size,
+                str.end(),
+                m_buffer.begin());
+        }
+        x += str.size();
+        y += x / m_buffer.get_dim0_size();
+        x %= m_buffer.get_dim0_size();
+        y %= m_buffer.get_dim1_size();
+    }
+private:
+    multidimention_array<char, 32, 16> m_buffer;
+    std::pair<int, int> m_cursor_pos;
+};
+
 using namespace std::literals;
 class terminal_emulator {
 public:
     terminal_emulator() :
-        m_window_manager{}, m_render{}, m_buffer{} {
+        m_window_manager{}, m_render{}, m_buffer_manager{} {
         std::string str = "hello world! Wow, do you think this is a good start? ...............abcdefghijklmnopqrstuvwxyz";
-        std::copy(str.begin(), str.end(), m_buffer.begin());
+        m_buffer_manager.append_string(str);
 
         m_render.init([this](vk::Instance instance) {
             return m_window_manager.create_surface(instance);
-            }, m_buffer);
-        m_buffer[std::pair{ 0,0 }] = 'T';
+            }, m_buffer_manager.get_buffer());
         m_render.notify_update();
     }
     void run() {
@@ -121,9 +175,8 @@ public:
             }
         };
         render_timer.async_wait(render_timer_complete);
-        m_window_manager.set_process_character_fun([this](uint32_t code) {
-            m_buffer[{0, 1}] = code;
-            m_render.notify_update();
+        m_window_manager.set_process_character_fun(
+            [this](uint32_t code) {
             });
 
         SECURITY_ATTRIBUTES secu_attr{};
@@ -144,9 +197,7 @@ public:
         std::array<char, 128> read_buf{};
         std::function<void(const boost::system::error_code&, std::size_t)> read_complete{
             [this, &read_buf, &read_pipe, &read_complete](const auto& error, auto bytes_transferred) {
-                std::copy(read_buf.begin(),
-                    read_buf.begin() + bytes_transferred,
-                    m_buffer.begin());
+                m_buffer_manager.append_string(std::string{read_buf.data(), bytes_transferred});
                 m_render.notify_update();
                 read_pipe.async_read_some(boost::asio::mutable_buffer{ read_buf.data(), read_buf.size() }, read_complete);
             }
@@ -160,13 +211,9 @@ public:
         OVERLAPPED overlapped{};
         overlapped.hEvent = connect_event;
         if (!ConnectNamedPipe(named_pipe_handle, &overlapped)) {
-            assert(
-                contains(
-                    std::set{
-                        ERROR_IO_PENDING,
-                        ERROR_PIPE_CONNECTED
-                    },
-                    GetLastError()));
+            if (!std::set{ ERROR_IO_PENDING, ERROR_PIPE_CONNECTED }.contains(GetLastError())) {
+                throw std::runtime_error{ "failed to connect to named pipe" };
+            }
         }
         HANDLE write_pipe_handle = CreateFile(
             pipe_name,
@@ -209,7 +256,7 @@ public:
 private:
     window_manager m_window_manager;
     vulkan_render m_render;
-    multidimention_array<char, 32, 32> m_buffer;
+    terminal_buffer_manager m_buffer_manager;
 };
 
 int main() {
