@@ -14,9 +14,11 @@
 #include <thread>
 #include <strstream>
 #include <algorithm>
+#include <random>
 
 #include "multidimention_array.hpp"
 #include "run_result.hpp"
+#include "named_pipe.hpp"
 
 
 struct glfwContext
@@ -181,19 +183,11 @@ public:
 
         SECURITY_ATTRIBUTES secu_attr{};
         secu_attr.bInheritHandle = TRUE;
-        const char pipe_name[] = "\\\\.\\pipe\\terminal_emulator";
-        HANDLE named_pipe_handle = CreateNamedPipe(pipe_name,
-            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE,
-            1,
-            256,
-            256,
-            0,
-            &secu_attr
-        );
-        assert(named_pipe_handle != INVALID_HANDLE_VALUE);
+        std::stringstream pipe_name_stream;
+        pipe_name_stream << "\\\\.\\pipe\\terminal_emulator-" << std::chrono::steady_clock::now().time_since_epoch();
+        std::string pipe_name = std::move(pipe_name_stream).str();
         boost::asio::readable_pipe read_pipe{ io};
-        read_pipe.assign(named_pipe_handle);
+        read_pipe.assign(windows::create_named_pipe(pipe_name));
         std::array<char, 128> read_buf{};
         std::function<void(const boost::system::error_code&, std::size_t)> read_complete{
             [this, &read_buf, &read_pipe, &read_complete](const auto& error, auto bytes_transferred) {
@@ -206,17 +200,8 @@ public:
             boost::asio::mutable_buffer{read_buf.data(), read_buf.size()},
             read_complete
             );
-        HANDLE connect_event = CreateEvent(&secu_attr, TRUE, TRUE, NULL);
-        assert(connect_event != NULL);
-        OVERLAPPED overlapped{};
-        overlapped.hEvent = connect_event;
-        if (!ConnectNamedPipe(named_pipe_handle, &overlapped)) {
-            if (!std::set{ ERROR_IO_PENDING, ERROR_PIPE_CONNECTED }.contains(GetLastError())) {
-                throw std::runtime_error{ "failed to connect to named pipe" };
-            }
-        }
         HANDLE write_pipe_handle = CreateFile(
-            pipe_name,
+            pipe_name.c_str(),
             GENERIC_WRITE,
             0,
             &secu_attr,
@@ -252,6 +237,9 @@ public:
             return;
         }
         io.run();
+        CloseHandle(write_pipe_handle);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
     }
 private:
     window_manager m_window_manager;
