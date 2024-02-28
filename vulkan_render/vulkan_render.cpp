@@ -1,6 +1,6 @@
 #include "vulkan_render.hpp"
 
-run_result vulkan_render::run()
+run_result renderer_presenter::run()
 {
     auto reused_acquire_image_semaphore = present_manager->get_next();
     auto image_index = device->acquireNextImageKHR(

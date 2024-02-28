@@ -201,7 +201,7 @@ public:
     }
 private:
     window_manager m_window_manager;
-    vulkan_render m_render;
+    renderer_presenter m_render;
     terminal_buffer_manager m_buffer_manager;
 };
 

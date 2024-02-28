@@ -2,6 +2,6 @@
 
 #include "vulkan_render.hpp"
 
-class vertex_renderer_prepare : public vulkan_render {
+class vertex_renderer_prepare : public renderer_presenter {
 
 };

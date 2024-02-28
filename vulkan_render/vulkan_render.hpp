@@ -438,7 +438,77 @@ protected:
     std::vector<vk::CommandBuffer> command_buffers;
 };
 
-class vulkan_render : public mesh_renderer {
+class vertex_renderer : public vulkan_render_prepare {
+public:
+    struct vertex {
+        float x, y, z, w;
+        uint32_t char_index;
+    };
+    auto create_pipeline(auto device, auto render_pass, auto pipeline_layout, uint32_t character_count) {
+        class char_count_specialization {
+        public:
+            char_count_specialization(uint32_t character_count)
+                :
+                m_count{ character_count },
+                map_entry{ vk::SpecializationMapEntry{}.setConstantID(555).setOffset(0).setSize(sizeof(m_count)) },
+                specialization_info{ vk::SpecializationInfo{}
+                .setMapEntries(map_entry).setDataSize(sizeof(m_count)).setPData(&this->m_count) }
+            {
+            }
+        public:
+            uint32_t m_count;
+            vk::SpecializationMapEntry map_entry;
+            vk::SpecializationInfo specialization_info;
+        };
+        char_count_specialization specialization{
+            character_count
+        };
+        vulkan::vertex_stage_info vertex_stage_info{
+            vertex_shader_path, "main",
+            vk::VertexInputBindingDescription{}.setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(vertex)),
+            std::vector{
+                vk::VertexInputAttributeDescription{}.setBinding(0).setLocation(0).setOffset(0).setFormat(vk::Format::eR32G32B32A32Sfloat),
+                vk::VertexInputAttributeDescription{}.setBinding(0).setLocation(1).setOffset(sizeof(float)*4).setFormat(vk::Format::eR32Uint)
+            },
+            specialization.specialization_info
+        };
+        return vk::SharedPipeline{
+            vulkan::create_pipeline(*device,
+                    vertex_stage_info,
+                    fragment_shader_path, *render_pass, *pipeline_layout).value, device };
+    }
+    void create_vertex_buffer(auto&& vertices) {
+        auto [buffer, memory, view] = vulkan::create_vertex_buffer(physical_device, device, vertices);
+        vertex_buffer = vk::SharedBuffer{ buffer, device };
+        vertex_buffer_view = vk::SharedBufferView{ view, device };
+        vertex_buffer_memory = vk::SharedDeviceMemory{ memory, device };
+    }
+    void create_and_update_terminal_buffer_relate_data() {
+        vulkan_render_prepare::create_and_update_terminal_buffer_relate_data(
+            descriptor_set, sampler, *p_terminal_buffer, imageViews
+        );
+        pipeline = create_pipeline(device, render_pass, pipeline_layout, character_count);
+        vk::DispatchLoaderDynamic dldid(*instance, vkGetInstanceProcAddr, *device);
+    }
+    void init(auto&& get_surface_from_extern, auto& terminal_buffer) {
+        vulkan_render_prepare::init(get_surface_from_extern, terminal_buffer);
+        vk::CommandBufferAllocateInfo commandBufferAllocateInfo(
+            *command_pool, vk::CommandBufferLevel::ePrimary, imageViews.size());
+        command_buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
+        create_and_update_terminal_buffer_relate_data();
+    }
+    void notify_update() {}
+private:
+    vk::SharedPipeline pipeline;
+    std::vector<vk::CommandBuffer> command_buffers;
+
+    std::vector<vertex> vertex_data;
+    vk::SharedBuffer vertex_buffer;
+    vk::SharedDeviceMemory vertex_buffer_memory;
+    vk::SharedBufferView vertex_buffer_view;
+};
+
+class renderer_presenter : public mesh_renderer {
 public:
     void set_texture_image_layout() {
         auto texture_prepare_semaphore = present_manager->get_next();

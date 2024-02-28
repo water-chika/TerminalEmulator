@@ -375,6 +375,7 @@ namespace vulkan {
         std::string entry_name;
         vk::VertexInputBindingDescription input_binding;
         std::vector<vk::VertexInputAttributeDescription> input_attributes;
+        vk::SpecializationInfo specialization_info;
     };
     struct task_stage_info {
         std::filesystem::path shader_file_path;
@@ -474,7 +475,7 @@ namespace vulkan {
         auto vertex_shader_module = create_shader_module(device, vertex_stage.shader_file_path);
         auto fragment_shader_module = create_shader_module(device, fragment_shader);
         std::array<vk::PipelineShaderStageCreateInfo, 2> shader_stage_create_infos = {
-            vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eVertex, *vertex_shader_module, vertex_stage.entry_name.c_str()},
+            vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eVertex, *vertex_shader_module, vertex_stage.entry_name.c_str()}.setPSpecializationInfo(&vertex_stage.specialization_info),
             vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eFragment, *fragment_shader_module, "main"},
         };
         vk::PipelineVertexInputStateCreateInfo vertex_input_state_create_info{ {}, vertex_stage.input_binding, vertex_stage.input_attributes };
