@@ -181,11 +181,10 @@ public:
             [this](uint32_t code) {
             });
 
-        std::stringstream pipe_name_stream;
-        pipe_name_stream << "\\\\.\\pipe\\terminal_emulator-" << std::chrono::steady_clock::now().time_since_epoch();
-        std::string pipe_name = std::move(pipe_name_stream).str();
-        boost::asio::readable_pipe read_pipe{ io};
-        read_pipe.assign(windows::create_named_pipe(pipe_name));
+        auto [read_pipe_handle, write_pipe_handle] = windows::create_pipe();
+        windows::process shell{ "Debug/sh.exe", write_pipe_handle };
+        boost::asio::readable_pipe read_pipe{ io, read_pipe_handle };
+
         std::array<char, 128> read_buf{};
         std::function<void(const boost::system::error_code&, std::size_t)> read_complete{
             [this, &read_buf, &read_pipe, &read_complete](const auto& error, auto bytes_transferred) {
@@ -198,8 +197,6 @@ public:
             boost::asio::mutable_buffer{read_buf.data(), read_buf.size()},
             read_complete
             );
-        windows::opened_named_pipe write_pipe_handle{ pipe_name };
-        windows::process shell{"Debug/sh.exe", write_pipe_handle};
         io.run();
     }
 private:

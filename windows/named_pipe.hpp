@@ -104,7 +104,7 @@ namespace windows {
 
     class process {
     public:
-        process(std::filesystem::path path, opened_named_pipe& out) {
+        process(std::filesystem::path path, HANDLE out) {
             STARTUPINFOW si;
             PROCESS_INFORMATION pi;
             ZeroMemory(&si, sizeof(si));
@@ -112,7 +112,7 @@ namespace windows {
             ZeroMemory(&pi, sizeof(pi));
             si.dwFlags |= STARTF_USESTDHANDLES;
             si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-            si.hStdOutput = out.native_handle();
+            si.hStdOutput = out;
             si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
             // Start the child process. 
             if (!::CreateProcessW(path.c_str(),   // No module name (use command line)
@@ -155,7 +155,7 @@ namespace windows {
         HANDLE output = create_file(pipe_name);
         return pipe_handles{input, output};
     }
-    auto create_process(std::filesystem::path path, opened_named_pipe& out) {
+    auto create_process(std::filesystem::path path, HANDLE out) {
         return windows::process{path, out};
     }
 }
