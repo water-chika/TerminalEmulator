@@ -486,8 +486,19 @@ namespace vulkan {
         vk::StencilOpState stencil_op_state{ vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways };
         vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_create_info{ {}, true, true, vk::CompareOp::eLessOrEqual, false, false, stencil_op_state, stencil_op_state };
         std::array<vk::PipelineColorBlendAttachmentState, 1> const color_blend_attachments = {
-        vk::PipelineColorBlendAttachmentState().setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-                                                              vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA) };
+                vk::PipelineColorBlendAttachmentState()
+        .setColorWriteMask(
+            vk::ColorComponentFlagBits::eR |
+            vk::ColorComponentFlagBits::eG |
+            vk::ColorComponentFlagBits::eB |
+            vk::ColorComponentFlagBits::eA)
+            .setBlendEnable(true)
+            .setColorBlendOp(vk::BlendOp::eAdd)
+            .setAlphaBlendOp(vk::BlendOp::eAdd)
+            .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+            .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+            .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+            .setDstAlphaBlendFactor(vk::BlendFactor::eZero) };
         vk::PipelineColorBlendStateCreateInfo color_blend_state_create_info{};
         color_blend_state_create_info.setAttachments(color_blend_attachments);
         std::array<vk::DynamicState, 2> dynamic_states = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
@@ -522,8 +533,19 @@ namespace vulkan {
         vk::StencilOpState stencil_op_state{ vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways };
         vk::PipelineDepthStencilStateCreateInfo depth_stencil_state_create_info{ {}, true, true, vk::CompareOp::eLessOrEqual, false, false, stencil_op_state, stencil_op_state };
         std::array<vk::PipelineColorBlendAttachmentState, 1> const color_blend_attachments = {
-        vk::PipelineColorBlendAttachmentState().setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-                                                              vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA) };
+        vk::PipelineColorBlendAttachmentState()
+        .setColorWriteMask(
+            vk::ColorComponentFlagBits::eR |
+            vk::ColorComponentFlagBits::eG |
+            vk::ColorComponentFlagBits::eB |
+            vk::ColorComponentFlagBits::eA)
+            .setBlendEnable(true)
+            .setColorBlendOp(vk::BlendOp::eAdd)
+            .setAlphaBlendOp(vk::BlendOp::eAdd)
+            .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+            .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+            .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+            .setDstAlphaBlendFactor(vk::BlendFactor::eZero) };
         vk::PipelineColorBlendStateCreateInfo color_blend_state_create_info{};
         color_blend_state_create_info.setAttachments(color_blend_attachments);
         std::array<vk::DynamicState, 2> dynamic_states = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };

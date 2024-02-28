@@ -201,7 +201,7 @@ public:
     }
 private:
     window_manager m_window_manager;
-    renderer_presenter m_render;
+    renderer_presenter<vertex_renderer> m_render;
     terminal_buffer_manager m_buffer_manager;
 };
 

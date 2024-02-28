@@ -227,7 +227,7 @@ public:
         };
         auto generate_char_indices_buf{
             [](auto& terminal_buffer, auto& char_texture_indices) {
-                multidimention_array<int, 32, 32> char_indices_buf{};
+                multidimention_array<uint32_t, 32, 16> char_indices_buf{};
                 std::transform(
                     terminal_buffer.begin(),
                     terminal_buffer.end(),
@@ -238,7 +238,7 @@ public:
                 return char_indices_buf;
             }
         };
-        auto char_indices_buf{
+        char_indices = {
             generate_char_indices_buf(terminal_buffer, char_texture_indices)
         };
         auto descriptor_set_bindings{
@@ -255,7 +255,7 @@ public:
         {
             auto [vk_char_indices_buffer, vk_char_indices_buffer_memory, vk_char_indices_buffer_size] =
                 vulkan::create_uniform_buffer(*physical_device, *device,
-                    char_indices_buf);
+                    char_indices);
             char_indices_buffer = vk::SharedBuffer{ vk_char_indices_buffer, device };
             char_indices_buffer_memory = vk::SharedDeviceMemory{ vk_char_indices_buffer_memory, device };
         }
@@ -354,6 +354,7 @@ protected:
     vk::SharedImage texture;
     vk::SharedImageView texture_view;
     vk::SharedDeviceMemory texture_memory;
+    multidimention_array<uint32_t, 32, 16> char_indices;
     vk::SharedBuffer char_indices_buffer;
     vk::SharedDeviceMemory char_indices_buffer_memory;
     vk::UniqueSampler sampler;
@@ -442,7 +443,6 @@ class vertex_renderer : public vulkan_render_prepare {
 public:
     struct vertex {
         float x, y, z, w;
-        uint32_t char_index;
     };
     auto create_pipeline(auto device, auto render_pass, auto pipeline_layout, uint32_t character_count) {
         class char_count_specialization {
@@ -467,8 +467,7 @@ public:
             vertex_shader_path, "main",
             vk::VertexInputBindingDescription{}.setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(vertex)),
             std::vector{
-                vk::VertexInputAttributeDescription{}.setBinding(0).setLocation(0).setOffset(0).setFormat(vk::Format::eR32G32B32A32Sfloat),
-                vk::VertexInputAttributeDescription{}.setBinding(0).setLocation(1).setOffset(sizeof(float)*4).setFormat(vk::Format::eR32Uint)
+                vk::VertexInputAttributeDescription{}.setBinding(0).setLocation(0).setOffset(0).setFormat(vk::Format::eR32G32B32A32Sfloat)
             },
             specialization.specialization_info
         };
@@ -478,17 +477,47 @@ public:
                     fragment_shader_path, *render_pass, *pipeline_layout).value, device };
     }
     void create_vertex_buffer(auto&& vertices) {
-        auto [buffer, memory, view] = vulkan::create_vertex_buffer(physical_device, device, vertices);
+        auto [buffer, memory, memory_size] = vulkan::create_vertex_buffer(*physical_device, *device, vertices);
         vertex_buffer = vk::SharedBuffer{ buffer, device };
-        vertex_buffer_view = vk::SharedBufferView{ view, device };
         vertex_buffer_memory = vk::SharedDeviceMemory{ memory, device };
     }
     void create_and_update_terminal_buffer_relate_data() {
         vulkan_render_prepare::create_and_update_terminal_buffer_relate_data(
             descriptor_set, sampler, *p_terminal_buffer, imageViews
         );
+        std::vector<vertex> vertices{};
+        auto& terminal_buffer = *p_terminal_buffer;
+        for (int y = 0; y < terminal_buffer.get_dim1_size(); y++) {
+            for (int x = 0; x < terminal_buffer.get_dim0_size(); x++) {
+                float width = 2.0f / terminal_buffer.get_dim0_size();
+                float height = 2.0f / terminal_buffer.get_dim1_size();
+                float s_x = -1 + x * width;
+                float s_y = -1 + y * height;
+                auto index = char_indices[std::pair{ x, y }];
+                const float tex_width = 1.0 / character_count;
+                const float tex_advance = tex_width;
+                const float tex_offset = tex_width * index;
+                vertices.push_back(vertex{ s_x, s_y, tex_offset, 0 });
+                vertices.push_back(vertex{ s_x + width, s_y, tex_offset + tex_advance, 0 });
+                vertices.push_back(vertex{ s_x, s_y + height, tex_offset, 1 });
+                vertices.push_back(vertex{ s_x, s_y + height, tex_offset, 1 });
+                vertices.push_back(vertex{ s_x + width, s_y, tex_offset + tex_advance, 0 });
+                vertices.push_back(vertex{ s_x + width,s_y + height, tex_offset + tex_advance, 1 });
+            }
+        }
+        create_vertex_buffer(vertices);
         pipeline = create_pipeline(device, render_pass, pipeline_layout, character_count);
         vk::DispatchLoaderDynamic dldid(*instance, vkGetInstanceProcAddr, *device);
+        for (integer_less_equal<decltype(imageViews.size())> i{ 0, imageViews.size() }; i < imageViews.size(); i++) {
+            record_draw_command(
+                command_buffers[i],
+                *render_pass,
+                *pipeline_layout,
+                *pipeline,
+                descriptor_set,
+                *framebuffers[i],
+                swapchain_extent, dldid);
+        }
     }
     void init(auto&& get_surface_from_extern, auto& terminal_buffer) {
         vulkan_render_prepare::init(get_surface_from_extern, terminal_buffer);
@@ -497,25 +526,61 @@ public:
         command_buffers = device->allocateCommandBuffers(commandBufferAllocateInfo);
         create_and_update_terminal_buffer_relate_data();
     }
-    void notify_update() {}
-private:
+    void notify_update() {
+        create_and_update_terminal_buffer_relate_data();
+    }
+
+    void record_draw_command(
+            vk::CommandBuffer cmd,
+            vk::RenderPass render_pass,
+            vk::PipelineLayout pipeline_layout,
+            vk::Pipeline pipeline,
+            vk::DescriptorSet descriptor_set,
+            vk::Framebuffer framebuffer,
+            vk::Extent2D swapchain_extent,
+            vk::DispatchLoaderDynamic dldid)
+    {
+            vk::CommandBufferBeginInfo begin_info{ vk::CommandBufferUsageFlagBits::eSimultaneousUse };
+            cmd.begin(begin_info);
+            std::array<vk::ClearValue, 2> clear_values;
+            clear_values[0].color = vk::ClearColorValue{ 1.0f, 1.0f,1.0f,1.0f };
+            clear_values[1].depthStencil = vk::ClearDepthStencilValue{ 1.0f, 0 };
+            vk::RenderPassBeginInfo render_pass_begin_info{
+                render_pass, framebuffer,
+                vk::Rect2D{vk::Offset2D{0,0},
+                swapchain_extent}, clear_values };
+            cmd.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
+            cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                pipeline);
+            cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                pipeline_layout, 0, descriptor_set, nullptr);
+            cmd.bindVertexBuffers(0, *vertex_buffer, { 0 });
+            cmd.bindVertexBuffers(1, *char_indices_buffer, { 0 });
+            cmd.setViewport(0, vk::Viewport(0, 0, swapchain_extent.width, swapchain_extent.height, 0, 1));
+            cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent));
+            cmd.draw(p_terminal_buffer->size()*6, 1, 0, 0);
+            cmd.endRenderPass();
+            cmd.end();
+    }
+protected:
     vk::SharedPipeline pipeline;
     std::vector<vk::CommandBuffer> command_buffers;
 
-    std::vector<vertex> vertex_data;
     vk::SharedBuffer vertex_buffer;
     vk::SharedDeviceMemory vertex_buffer_memory;
     vk::SharedBufferView vertex_buffer_view;
 };
 
-class renderer_presenter : public mesh_renderer {
+template<class Renderer>
+class renderer_presenter : public Renderer {
 public:
     void set_texture_image_layout() {
         auto texture_prepare_semaphore = present_manager->get_next();
         {
-            vk::CommandBuffer init_command_buffer{ device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*command_pool)).front() };
+            vk::CommandBuffer init_command_buffer{
+                Renderer::device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*Renderer::command_pool)).front() };
             init_command_buffer.begin(vk::CommandBufferBeginInfo{});
-            vulkan::set_image_layout(init_command_buffer, *texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
+            vulkan::set_image_layout(init_command_buffer, *Renderer::texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
                 vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits(), vk::PipelineStageFlagBits::eTopOfPipe,
                 vk::PipelineStageFlagBits::eFragmentShader);
             auto cmd = init_command_buffer;
@@ -523,20 +588,56 @@ public:
             auto signal_semaphore = texture_prepare_semaphore.semaphore;
             auto command_submit_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(cmd);
             auto signal_semaphore_info = vk::SemaphoreSubmitInfo{}.setSemaphore(signal_semaphore).setStageMask(vk::PipelineStageFlagBits2::eTransfer);
-            queue->submit2(vk::SubmitInfo2{}.setCommandBufferInfos(command_submit_info).setSignalSemaphoreInfos(signal_semaphore_info));
-            queue->submit2(vk::SubmitInfo2{}.setWaitSemaphoreInfos(signal_semaphore_info), texture_prepare_semaphore.fence);
+            Renderer::queue->submit2(vk::SubmitInfo2{}.setCommandBufferInfos(command_submit_info).setSignalSemaphoreInfos(signal_semaphore_info));
+            Renderer::queue->submit2(vk::SubmitInfo2{}.setWaitSemaphoreInfos(signal_semaphore_info), texture_prepare_semaphore.fence);
         }
     }
     void init(auto&& get_surface, auto& terminal_buffer) {
-        mesh_renderer::init(std::forward<decltype(get_surface)>(get_surface),
+        Renderer::init(std::forward<decltype(get_surface)>(get_surface),
             terminal_buffer);
-        present_manager = std::make_shared<vulkan::present_manager>(device, 10);
+        present_manager = std::make_shared<vulkan::present_manager>(Renderer::device, 10);
         set_texture_image_layout();
     }
-    run_result run();
+    run_result run()
+    {
+        auto reused_acquire_image_semaphore = present_manager->get_next();
+        auto image_index = Renderer::device->acquireNextImageKHR(
+            *Renderer::swapchain, UINT64_MAX,
+            reused_acquire_image_semaphore.semaphore)
+            .value;
+
+        auto& render_complete_semaphore = Renderer::render_complete_semaphores[image_index];
+        auto& command_buffer = Renderer::command_buffers[image_index];
+
+        {
+            auto wait_semaphore_infos = std::array{
+                vk::SemaphoreSubmitInfo{}
+                    .setSemaphore(reused_acquire_image_semaphore.semaphore)
+                    .setStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput),
+            };
+            auto submit_cmd_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(command_buffer);
+            auto signal_semaphore_info = vk::SemaphoreSubmitInfo{}.setSemaphore(*render_complete_semaphore).setStageMask(vk::PipelineStageFlagBits2::eAllCommands);
+            Renderer::queue->submit2(
+                vk::SubmitInfo2{}
+                .setWaitSemaphoreInfos(wait_semaphore_infos)
+                .setCommandBufferInfos(submit_cmd_info)
+                .setSignalSemaphoreInfos(signal_semaphore_info),
+                reused_acquire_image_semaphore.fence);
+        }
+
+        {
+            std::array<vk::Semaphore, 1> wait_semaphores{ *render_complete_semaphore };
+            std::array<vk::SwapchainKHR, 1> swapchains{ *Renderer::swapchain };
+            std::array<uint32_t, 1> indices{ image_index };
+            vk::PresentInfoKHR present_info{ wait_semaphores, swapchains, indices };
+            auto res = Renderer::queue->presentKHR(present_info);
+            assert(res == vk::Result::eSuccess);
+        }
+        return run_result::eContinue;
+    }
     void notify_update() {
         present_manager->wait_all();
-        mesh_renderer::notify_update();
+        Renderer::notify_update();
         set_texture_image_layout();
     }
 private:
