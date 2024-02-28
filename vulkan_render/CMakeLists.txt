@@ -10,6 +10,8 @@ add_library(vulkan_render
     vulkan_render.cpp
     vulkan_render.hpp
     spirv_reader.hpp
+    vertex_renderer.hpp
+    vulkan_utility.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/include/shader_path.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/include/spirv_reader_os.hpp
     ${CMAKE_CURRENT_BINARY_DIR}/vertex.spv
