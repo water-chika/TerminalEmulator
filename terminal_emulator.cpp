@@ -181,8 +181,6 @@ public:
             [this](uint32_t code) {
             });
 
-        SECURITY_ATTRIBUTES secu_attr{};
-        secu_attr.bInheritHandle = TRUE;
         std::stringstream pipe_name_stream;
         pipe_name_stream << "\\\\.\\pipe\\terminal_emulator-" << std::chrono::steady_clock::now().time_since_epoch();
         std::string pipe_name = std::move(pipe_name_stream).str();
@@ -201,7 +199,7 @@ public:
             read_complete
             );
         windows::opened_named_pipe write_pipe_handle{ pipe_name };
-        windows::process shell{ write_pipe_handle };
+        windows::process shell{"Debug/sh.exe", write_pipe_handle};
         io.run();
     }
 private:

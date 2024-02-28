@@ -105,7 +105,7 @@ namespace windows {
     class process {
     public:
         process(std::filesystem::path path, opened_named_pipe& out) {
-            STARTUPINFO si;
+            STARTUPINFOW si;
             PROCESS_INFORMATION pi;
             ZeroMemory(&si, sizeof(si));
             si.cb = sizeof(si);
@@ -115,7 +115,7 @@ namespace windows {
             si.hStdOutput = out.native_handle();
             si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
             // Start the child process. 
-            if (!CreateProcess(path.c_str(),   // No module name (use command line)
+            if (!::CreateProcessW(path.c_str(),   // No module name (use command line)
                 NULL,        // Command line
                 NULL,           // Process handle not inheritable
                 NULL,           // Thread handle not inheritable
@@ -155,8 +155,8 @@ namespace windows {
         HANDLE output = create_file(pipe_name);
         return pipe_handles{input, output};
     }
-    auto create_process(std::filesystem::path path, out) {
-        windows::process{path, out};
+    auto create_process(std::filesystem::path path, opened_named_pipe& out) {
+        return windows::process{path, out};
     }
 }
 using namespace windows;
