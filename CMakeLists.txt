@@ -30,3 +30,10 @@ add_executable(sh sh.cpp)
 set_property(TARGET sh PROPERTY CXX_STANDARD 23)
 
 add_dependencies(terminal_emulator sh)
+
+add_executable(attribute_dependence_parser
+    attribute_dependence_parser.cpp
+    lex.yy.c
+    parser.tab.c
+)
+set_property(TARGET attribute_dependence_parser PROPERTY CXX_STANDARD 23)

@@ -143,9 +143,6 @@ class terminal_emulator {
 public:
     terminal_emulator() :
         m_window_manager{}, m_render{}, m_buffer_manager{} {
-        std::string str = "hello world! Wow, do you think this is a good start? ...............abcdefghijklmnopqrstuvwxyz";
-        m_buffer_manager.append_string(str);
-
         m_render.init([this](vk::Instance instance) {
             return m_window_manager.create_surface(instance);
             }, m_buffer_manager.get_buffer());
