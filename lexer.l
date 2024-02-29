@@ -2,7 +2,7 @@
 #include "parser.tab.h"
 %}
 
-ID       [a-z][a-z0-9]*
+ID       [a-zA-Z_][a-zA-Z0-9_]*
 
 %x	STATEMENTS
 %%
