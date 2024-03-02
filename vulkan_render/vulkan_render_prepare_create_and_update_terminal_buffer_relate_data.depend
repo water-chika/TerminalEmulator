@@ -1,0 +1,66 @@
+char_set<-terminal_buffer
+char_set{
+auto char_set = generate_char_set(terminal_buffer);
+}
+characters<-char_set
+characters{
+auto characters = generate_characters(char_set);
+}
+character_count<-char_set
+character_count{
+character_count = char_set.size();
+}
+char_texture_indices<-characters
+char_texture_indices{
+auto char_texture_indices = generate_char_texture_indices(characters);
+}
+char_indices<-terminal_buffer
+char_indices<-char_texture_indices
+char_indices{
+char_indices = generate_char_indices_buf(terminal_buffer, char_texture_indices);
+}
+call_create_font_texture<-physical_device
+call_create_font_texture<-device
+call_create_font_texture<-characters
+call_create_font_texture{
+std::tie(texture, texture_memory, texture_view) = create_font_texture(physical_device, device, characters);
+}
+texture<-call_create_font_texture
+texture_memory<-call_create_font_texture
+texture_view<-call_create_font_texture
+char_indices_buffer<-device
+char_indices_buffer<-char_indices
+char_indices_buffer{
+char_indices_buffer = vk::SharedBuffer(vulkan::create_buffer(*device, char_indices.size() * sizeof(*std::begin(char_indices)),
+    vk::BufferUsageFlagBits::eUniformBuffer), device);
+}
+char_indices_buffer_memory<-physical_device
+char_indices_buffer_memory<-device
+char_indices_buffer_memory<-char_indices_buffer
+char_indices_buffer_memory{
+char_indices_buffer_memory = vk::SharedDeviceMemory(
+    std::get<0>(
+        vulkan::allocate_device_memory(*physical_device, *device, *char_indices_buffer,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)),
+    device);
+}
+char_indices_buffer_bind_memory<-device
+char_indices_buffer_bind_memory<-char_indices_buffer
+char_indices_buffer_bind_memory<-char_indices_buffer_memory
+char_indices_buffer_bind_memory{
+device->bindBufferMemory(*char_indices_buffer, *char_indices_buffer_memory, 0);
+}
+char_indices_buffer_valid_values<-device
+char_indices_buffer_valid_values<-char_indices_buffer
+char_indices_buffer_valid_values<-char_indices_buffer_memory
+char_indices_buffer_valid_values<-char_indices
+char_indices_buffer_valid_values{
+vulkan::copy_to_buffer(*device, *char_indices_buffer, *char_indices_buffer_memory, char_indices);
+}
+update_descriptor_set<-descriptor_set
+update_descriptor_set<-texture_view
+update_descriptor_set<-sampler
+update_descriptor_set<-char_indices_buffer_bind_memory
+update_descriptor_set{
+update_descriptor_set(descriptor_set, texture_view, sampler, char_indices_buffer);
+}
