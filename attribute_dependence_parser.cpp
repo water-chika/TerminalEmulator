@@ -8,10 +8,10 @@ void generate_init_all_func(std::multimap<std::string, std::string> dependences,
 
 std::multimap<std::string, std::string> dependences{};
 std::map<std::string, std::string> init_funcs{};
-void add_depend(const char* a, const char* b) {
+void add_depend(std::string a, std::string b) {
 	dependences.emplace(a,b);
 }
-void add_init(const char* a, const char* b) {
+void add_init(std::string a, std::string b) {
 	init_funcs.emplace(a,b);
 }
 void yyparse();
