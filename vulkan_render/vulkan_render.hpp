@@ -51,9 +51,6 @@ public:
     auto select_queue_family(auto physical_device) {
         return vulkan::shared::select_queue_family(physical_device);
     }
-    auto create_device(auto physical_device, auto queue_family_index) {
-        return vulkan::shared::create_device(physical_device, queue_family_index);
-    }
     auto get_queue(auto device, auto queue_family_index) {
         return vulkan::shared::get_queue(device, queue_family_index, 0);
     }
@@ -300,7 +297,22 @@ public:
         auto descriptor_set_bindings = create_descriptor_set_bindings();
 
 
+        std::array<std::string, 1> deviceExtensions{
+            "VK_KHR_swapchain",
+        };
+
+
+        std::vector<const char*> device_extensions(deviceExtensions.size());
+        std::ranges::transform(
+            deviceExtensions,
+            device_extensions.begin(),
+            [](auto& ext) { return ext.data();  });
+
+
         physical_device = select_physical_device(instance);
+
+
+        float queuePriority = 0.0f;
 
 
         auto queue_family_index = select_queue_family(physical_device);
@@ -318,10 +330,24 @@ public:
         vk::Format color_format = select_color_format(physical_device, surface);
 
 
-        device = create_device(physical_device, queue_family_index);
+        auto deviceQueueCreateInfo = vk::DeviceQueueCreateInfo{}.setQueueFamilyIndex(queue_family_index).setQueuePriorities(queuePriority);
+
+
+        vk::StructureChain device_create_info{
+            vk::DeviceCreateInfo{}
+            .setQueueCreateInfos(deviceQueueCreateInfo)
+            .setPEnabledExtensionNames(device_extensions),
+            vk::PhysicalDeviceFeatures2{},
+            //vk::PhysicalDeviceMeshShaderFeaturesEXT{}.setMeshShader(true).setTaskShader(true),
+            vk::PhysicalDeviceMaintenance4Features{}.setMaintenance4(true),
+            vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(true),
+        };
 
 
         p_terminal_buffer = &terminal_buffer;
+
+
+        device = vk::SharedDevice{ physical_device->createDevice(device_create_info.get<vk::DeviceCreateInfo>()) };
 
 
         queue = get_queue(device, queue_family_index);

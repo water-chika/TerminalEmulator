@@ -118,48 +118,6 @@ namespace vulkan {
         }
         return graphicsQueueFamilyIndex;
     }
-    inline auto create_device(vk::PhysicalDevice physical_device, uint32_t graphicsQueueFamilyIndex) {
-        float queuePriority = 0.0f;
-        vk::DeviceQueueCreateInfo deviceQueueCreateInfo({}, graphicsQueueFamilyIndex, 1, &queuePriority);
-        std::array<std::string, 2> deviceExtensions{
-            "VK_KHR_swapchain",
-            "VK_EXT_mesh_shader",
-        };
-        std::vector<vk::ExtensionProperties> available_device_extensions =
-            physical_device.enumerateDeviceExtensionProperties();
-        std::vector<std::string> nonavailable_device_extensions{};
-        std::vector<std::string> availables(available_device_extensions.size());
-        std::ranges::transform(
-            available_device_extensions,
-            availables.begin(),
-            [](auto&& exten) { return std::string{ exten.extensionName.data() }; });
-        std::ranges::sort(deviceExtensions);
-        std::ranges::sort(availables);
-        std::ranges::set_difference(
-            deviceExtensions, availables,
-            std::back_inserter(nonavailable_device_extensions),
-            {},
-            [](auto exten) { return std::string{ exten }; }
-        );
-        if (nonavailable_device_extensions.size() > 0) {
-            throw std::runtime_error{ "not supported device extensions: "s + nonavailable_device_extensions[0] };
-        }
-        std::vector<const char*> device_extensions(deviceExtensions.size());
-        std::ranges::transform(
-            deviceExtensions,
-            device_extensions.begin(),
-            [](auto& ext) { return ext.data();  });
-        vk::StructureChain device_create_info{
-            vk::DeviceCreateInfo{}
-            .setQueueCreateInfos(deviceQueueCreateInfo)
-            .setPEnabledExtensionNames(device_extensions),
-            vk::PhysicalDeviceFeatures2{},
-            vk::PhysicalDeviceMeshShaderFeaturesEXT{}.setMeshShader(true).setTaskShader(true),
-            vk::PhysicalDeviceMaintenance4Features{}.setMaintenance4(true),
-            vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(true),
-        };
-        return physical_device.createDevice(device_create_info.get<vk::DeviceCreateInfo>());
-    }
     inline auto select_depth_image_tiling(vk::PhysicalDevice physical_device, vk::Format format) {
         vk::FormatProperties format_properties = physical_device.getFormatProperties(format);
         if (format_properties.linearTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
@@ -640,9 +598,6 @@ namespace vulkan {
         }
         inline auto select_queue_family(vk::SharedPhysicalDevice physical_device) {
             return vulkan::select_queue_family(*physical_device);
-        }
-        inline auto create_device(vk::SharedPhysicalDevice physical_device, uint32_t graphics_queue_family_index) {
-            return vk::SharedDevice{ vulkan::create_device(*physical_device, graphics_queue_family_index) };
         }
         inline auto get_queue(vk::SharedDevice device, uint32_t queue_family_index, uint32_t queue_index) {
             return vk::SharedQueue{ device->getQueue(queue_family_index, queue_index), device };

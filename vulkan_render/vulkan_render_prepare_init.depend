@@ -7,9 +7,43 @@ queue_family_index{
 auto queue_family_index = select_queue_family(physical_device);
 }
 device<-physical_device
-device<-queue_family_index
+device<-device_create_info
 device{
-device = create_device(physical_device, queue_family_index);
+device = vk::SharedDevice{physical_device.createDevice(device_create_info.get<vk::DeviceCreateInfo>()), physical_device};
+}
+device_create_info<-deviceQueueCreateInfo
+device_create_info<-device_extensions
+device_create_info{
+vk::StructureChain device_create_info{
+    vk::DeviceCreateInfo{}
+    .setQueueCreateInfos(deviceQueueCreateInfo)
+    .setPEnabledExtensionNames(device_extensions),
+    vk::PhysicalDeviceFeatures2{},
+    vk::PhysicalDeviceMeshShaderFeaturesEXT{}.setMeshShader(true).setTaskShader(true),
+    vk::PhysicalDeviceMaintenance4Features{}.setMaintenance4(true),
+    vk::PhysicalDeviceSynchronization2Features{}.setSynchronization2(true),
+};
+}
+deviceQueueCreateInfo<-queue_family_index
+deviceQueueCreateInfo<-queuePriority
+deviceQueueCreateInfo{
+auto deviceQueueCreateInfo = vk::DeviceQueueCreateInfo{}.setQueueFamilyIndex(queue_family_index).setQueuePriorities(queuePriority);
+}
+queuePriority{
+float queuePriority = 0.0f;
+}
+device_extensions<-deviceExtensions
+device_extensions{
+std::vector<const char*> device_extensions(deviceExtensions.size());
+std::ranges::transform(
+    deviceExtensions,
+    device_extensions.begin(),
+    [](auto& ext) { return ext.data();  });
+}
+deviceExtensions{
+std::array<std::string, 1> deviceExtensions{
+    "VK_KHR_swapchain",
+};
 }
 queue<-device
 queue<-queue_family_index

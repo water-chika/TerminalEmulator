@@ -19,7 +19,7 @@ all:
 ;
 
 depend: ID LEFT_ARROW ID END_OF_LINE { 
-      add_depend(std::move($1), std::move($2));
+      add_depend(std::move($1), std::move($3));
 }
 ;
 
@@ -29,8 +29,7 @@ init: ID init_statements END_OF_LINE {
 ;
 
 init_statements:
-	       INIT_STATEMENTS	{ $$ = std::move($1); }
-|	LEFT_BRACE init_statements RIGHT_BRACE { $$ = "{" + std::move($2) + "}"; }
+	       %empty	{ $$ = ""; }
 |	LEFT_BRACE init_statements RIGHT_BRACE init_statements {
 		$$ = "{" + std::move($2) + "}" + std::move($4);
 }
