@@ -19,5 +19,16 @@ namespace Linux{
             execl(path.c_str(), path.c_str());
         }
     }
+    class process{
+    public:
+        process(std::filesystem::path path, int out) {
+            if (fork()) {
+            }
+            else {
+                dup2(out, STDOUT_FILENO);
+                execl(path.c_str(), path.c_str());
+            }
+        }
+    };
 }
 using namespace Linux;

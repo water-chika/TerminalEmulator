@@ -1,0 +1,44 @@
+io{
+boost::asio::io_context io{};
+}
+timer<-io
+io_run<-timer
+timer{
+boost::asio::steady_timer timer{io, 1ms};
+std::function<void(const boost::system::error_code)> timer_fun{
+    [this, &io, &timer, &timer_fun](const boost::system::error_code& err) {
+        if (m_window_manager.run() == run_result::eBreak) {
+            io.stop();
+        }
+        else {
+            timer.expires_after(1ms);
+            timer.async_wait(timer_fun);
+        }
+    }
+};
+timer.async_wait(
+    timer_fun
+);
+}
+io_run<-pipe
+pipe{
+auto [read_pipe_handle, write_pipe_handle] = CurrentOS::create_pipe();
+CurrentOS::process shell{"sh", write_pipe_handle};
+boost::asio::readable_pipe read_pipe{io, read_pipe_handle};
+std::array<char, 128> read_buf{};
+std::function<void(const boost::system::error_code&, std::size_t)> read_complete{
+    [this, &read_buf, &read_pipe, &read_complete](const auto& error, auto bytes_transferred) {
+        m_buffer_manager.append_string(std::string{read_buf.data(), bytes_transferred});
+        m_render.notify_update();
+        m_render.run();
+        read_pipe.async_read_some(boost::asio::mutable_buffer{ read_buf.data(), read_buf.size() }, read_complete);
+    }
+};
+read_pipe.async_read_some(
+    boost::asio::mutable_buffer{read_buf.data(), read_buf.size()},
+    read_complete
+);
+}
+io_run{
+io.run();
+}
