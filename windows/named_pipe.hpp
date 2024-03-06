@@ -133,6 +133,7 @@ namespace windows {
             m_process = pi.hProcess;
             m_thread = pi.hThread;
         }
+        process(process&& rhs) = delete;
         ~process() {
             close_handle(m_thread);
             close_handle(m_process);
