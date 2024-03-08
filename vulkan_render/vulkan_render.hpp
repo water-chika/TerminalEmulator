@@ -629,19 +629,21 @@ public:
     void set_texture_image_layout() {
         auto texture_prepare_semaphore = present_manager->get_next();
         {
-            vk::CommandBuffer init_command_buffer{
-                Renderer::device->allocateCommandBuffers(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*Renderer::command_pool)).front() };
-            init_command_buffer.begin(vk::CommandBufferBeginInfo{});
-            vulkan::set_image_layout(init_command_buffer, *Renderer::texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
+            vk::UniqueCommandBuffer init_command_buffer{
+                std::move(Renderer::device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo{}.setCommandBufferCount(1).setCommandPool(*Renderer::command_pool)).front()) };
+            init_command_buffer->begin(vk::CommandBufferBeginInfo{});
+            vulkan::set_image_layout(*init_command_buffer, *Renderer::texture, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::ePreinitialized,
                 vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits(), vk::PipelineStageFlagBits::eTopOfPipe,
                 vk::PipelineStageFlagBits::eFragmentShader);
-            auto cmd = init_command_buffer;
-            cmd.end();
+            auto& cmd = init_command_buffer;
+            cmd->end();
             auto signal_semaphore = texture_prepare_semaphore.semaphore;
-            auto command_submit_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(cmd);
+            auto command_submit_info = vk::CommandBufferSubmitInfo{}.setCommandBuffer(*cmd);
             auto signal_semaphore_info = vk::SemaphoreSubmitInfo{}.setSemaphore(signal_semaphore).setStageMask(vk::PipelineStageFlagBits2::eTransfer);
             Renderer::queue->submit2(vk::SubmitInfo2{}.setCommandBufferInfos(command_submit_info).setSignalSemaphoreInfos(signal_semaphore_info));
             Renderer::queue->submit2(vk::SubmitInfo2{}.setWaitSemaphoreInfos(signal_semaphore_info), texture_prepare_semaphore.fence);
+            auto res = Renderer::device->waitForFences(std::array<vk::Fence, 1>{texture_prepare_semaphore.fence}, true, UINT64_MAX);
+            assert(res == vk::Result::eSuccess);
         }
     }
     void init(auto&& get_surface, auto& terminal_buffer) {
