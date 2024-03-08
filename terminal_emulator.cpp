@@ -1,3 +1,5 @@
+#define _WIN32_WINNT 0x0A00
+
 #include "boost/asio.hpp"
 #include "font_loader.hpp"
 #include "vulkan_render.hpp"
@@ -15,10 +17,13 @@
 #include <strstream>
 #include <thread>
 #include <utility>
+#include <fstream>
 
 #include "multidimention_array.hpp"
 #include "named_pipe.hpp"
 #include "run_result.hpp"
+
+#include <ConsoleApi.h>
 
 struct glfwContext {
   glfwContext() {
@@ -44,9 +49,10 @@ public:
     auto res = glfwCreateWindowSurface(instance, window, NULL, &surface);
     return surface;
   }
-  void set_process_character_fun(auto &&fun) { process_character_fun = fun; }
+  void set_process_character_fun(auto&& fun) {
+      process_character_fun = std::move(fun);
+  }
   void process_character(uint32_t codepoint) {
-    std::cout << codepoint;
     process_character_fun(codepoint);
   }
   static void character_callback(GLFWwindow *window, unsigned int codepoint) {
@@ -140,9 +146,10 @@ public:
     using namespace windows;
     class pipe_async {
     public:
-        pipe_async(terminal_emulator& emulator, boost::asio::io_context& executor, std::unique_ptr<process>&& shell, std::unique_ptr<boost::asio::readable_pipe>&& read_pipe) 
+        pipe_async(terminal_emulator& emulator,
+            boost::asio::io_context& executor,
+            std::unique_ptr<boost::asio::readable_pipe>&& read_pipe) 
             : emulator{emulator},
-            shell{std::move(shell)},
             read_pipe{std::move(read_pipe)},
             buf{std::make_unique<std::array<char, 128>>()}
         {
@@ -167,14 +174,33 @@ public:
         }
     private:
         terminal_emulator& emulator;
-        std::unique_ptr<process> shell;
         std::unique_ptr<boost::asio::readable_pipe> read_pipe;
         std::unique_ptr<std::array<char, 128>> buf;
     };
-    auto [read_pipe_handle, write_pipe_handle] = create_pipe();
-    auto shell = std::make_unique<process>("Debug/sh.exe", write_pipe_handle);
-    auto read_pipe = std::make_unique<boost::asio::readable_pipe>(executor, read_pipe_handle);
-    pipe_async pipe_async_v{ *this, executor, std::move(shell), std::move(read_pipe) };
+    auto input_pipe_name = generate_random_pipe_name();
+    auto inputReadSide = create_named_pipe(input_pipe_name);
+    auto inputWriteSide = std::make_shared<std::ofstream>(input_pipe_name);
+    auto [outputReadSide, outputWriteSide] = create_pipe();
+    HPCON hPC;
+    HRESULT hr = CreatePseudoConsole(COORD{ 32, 16 }, inputReadSide, outputWriteSide, 0, & hPC);
+    assert(SUCCEEDED(hr));
+    STARTUPINFOEXW si;
+    PrepareStartupInformation(hPC, &si);
+    SetUpPseudoConsole(si, COORD{ 32, 16 });
+    //auto shell = std::make_unique<process>("Debug/sh.exe", write_pipe_handle);
+    auto read_pipe = std::make_unique<boost::asio::readable_pipe>(executor, outputReadSide);
+
+    auto write_buf = std::make_shared<std::array<char, 10>>();
+
+    m_window_manager.set_process_character_fun(
+        [inputWriteSide]
+        (auto codepoint) mutable {
+            auto& out = *inputWriteSide;
+            *inputWriteSide << static_cast<char>(codepoint);
+            out.flush();
+        }
+    );
+    pipe_async pipe_async_v{ *this, executor, std::move(read_pipe) };
 
     class window_run {
     public:
@@ -204,7 +230,87 @@ public:
     };
     window_run window_run{ *this, executor };
   }
+  HRESULT PrepareStartupInformation(HPCON hpc, STARTUPINFOEXW* psi)
+  {
+      // Prepare Startup Information structure
+      STARTUPINFOEXW si;
+      ZeroMemory(&si, sizeof(si));
+      si.StartupInfo.cb = sizeof(STARTUPINFOEXW);
 
+      // Discover the size required for the list
+      size_t bytesRequired;
+      InitializeProcThreadAttributeList(NULL, 1, 0, &bytesRequired);
+
+      // Allocate memory to represent the list
+      si.lpAttributeList = (PPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(GetProcessHeap(), 0, bytesRequired);
+      if (!si.lpAttributeList)
+      {
+          return E_OUTOFMEMORY;
+      }
+
+      // Initialize the list memory location
+      if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &bytesRequired))
+      {
+          HeapFree(GetProcessHeap(), 0, si.lpAttributeList);
+          return HRESULT_FROM_WIN32(GetLastError());
+      }
+
+      // Set the pseudoconsole information into the list
+      if (!UpdateProcThreadAttribute(si.lpAttributeList,
+          0,
+          PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+          hpc,
+          sizeof(hpc),
+          NULL,
+          NULL))
+      {
+          HeapFree(GetProcessHeap(), 0, si.lpAttributeList);
+          return HRESULT_FROM_WIN32(GetLastError());
+      }
+
+      *psi = si;
+
+      return S_OK;
+  }
+  
+  HRESULT SetUpPseudoConsole(STARTUPINFOEXW siEx, COORD size)
+  {
+      // ...
+
+      PCWSTR childApplication = L"C:\\windows\\system32\\cmd.exe";
+
+      // Create mutable text string for CreateProcessW command line string.
+      const size_t charsRequired = wcslen(childApplication) + 1; // +1 null terminator
+      PWSTR cmdLineMutable = (PWSTR)HeapAlloc(GetProcessHeap(), 0, sizeof(wchar_t) * charsRequired);
+
+      if (!cmdLineMutable)
+      {
+          return E_OUTOFMEMORY;
+      }
+
+      wcscpy_s(cmdLineMutable, charsRequired, childApplication);
+
+      PROCESS_INFORMATION pi;
+      ZeroMemory(&pi, sizeof(pi));
+
+      // Call CreateProcess
+      if (!CreateProcessW(NULL,
+          cmdLineMutable,
+          NULL,
+          NULL,
+          FALSE,
+          EXTENDED_STARTUPINFO_PRESENT,
+          NULL,
+          NULL,
+          &siEx.StartupInfo,
+          &pi))
+      {
+          HeapFree(GetProcessHeap(), 0, cmdLineMutable);
+          return HRESULT_FROM_WIN32(GetLastError());
+      }
+
+      // ...
+  }
 private:
   window_manager m_window_manager;
   renderer_presenter<vertex_renderer> m_render;

@@ -146,16 +146,20 @@ namespace windows {
         HANDLE input;
         HANDLE output;
     };
+    auto generate_random_pipe_name() {
+        std::stringstream pipe_name_stream;
+        pipe_name_stream << "\\\\.\\pipe\\terminal_emulator-" << std::chrono::steady_clock::now().time_since_epoch();
+        return std::move(pipe_name_stream).str();
+    }
     auto create_pipe() {
         SECURITY_ATTRIBUTES secu_attr{};
         secu_attr.bInheritHandle = TRUE;
-        std::stringstream pipe_name_stream;
-        pipe_name_stream << "\\\\.\\pipe\\terminal_emulator-" << std::chrono::steady_clock::now().time_since_epoch();
-        std::string pipe_name = std::move(pipe_name_stream).str();
+        std::string pipe_name = windows::generate_random_pipe_name();
         HANDLE input = windows::create_named_pipe(pipe_name);
         HANDLE output = create_file(pipe_name);
         return pipe_handles{input, output};
     }
+
     auto create_process(std::filesystem::path path, HANDLE out) {
         return windows::process{path, out};
     }
