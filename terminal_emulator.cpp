@@ -22,6 +22,7 @@
 #include "multidimention_array.hpp"
 #include "named_pipe.hpp"
 #include "run_result.hpp"
+#include "terminal_sequence_lexer.hpp"
 
 #include <ConsoleApi.h>
 
@@ -138,6 +139,11 @@ public:
     y %= m_buffer.get_dim1_size();
   }
 
+  COORD get_coord() {
+      return COORD{ static_cast<int16_t>(m_buffer.get_width()), 
+          static_cast<int16_t>(m_buffer.get_height()) };
+  }
+
 private:
   multidimention_vector<char> m_buffer;
   std::pair<int, int> m_cursor_pos;
@@ -162,7 +168,7 @@ public:
             boost::asio::io_context& executor,
             std::unique_ptr<boost::asio::readable_pipe>&& read_pipe) 
             : emulator{emulator},
-            read_pipe{std::move(read_pipe)},
+            read_pipe{ std::move(read_pipe) }, lexer{},
             buf{std::make_unique<std::array<char, 128>>()}
         {
             async_read();
@@ -173,22 +179,9 @@ public:
             async_read();
         }
         void process_text(std::size_t count) {
-            std::vector<char> text;
-            
-            for (int i = 0; i < count; i++) {
-                char c = (*buf)[i];
-                if (c == 0x1b) {
-                    in_escape = true;
-                }
-                else if (in_escape) {
-                    in_escape = false;
-                }
-                else if (!in_escape) {
-                    text.push_back(c);
-                }
-            }
+            std::vector<char> text = lexer.lex(std::string_view{ &(*buf)[0], count});
             emulator.m_buffer_manager.append_string(
-                std::string{ buf->data(), count });
+                std::string{ text.data(), text.size()});
             emulator.m_render.notify_update();
             emulator.m_render.run();
         }
@@ -203,17 +196,18 @@ public:
         std::unique_ptr<boost::asio::readable_pipe> read_pipe;
         std::unique_ptr<std::array<char, 128>> buf;
         bool in_escape = false;
+        terminal_sequence_lexer lexer;
     };
     auto input_pipe_name = generate_random_pipe_name();
     auto inputReadSide = create_named_pipe(input_pipe_name);
     auto inputWriteSide = std::make_shared<std::ofstream>(input_pipe_name);
     auto [outputReadSide, outputWriteSide] = create_pipe();
     HPCON hPC;
-    HRESULT hr = CreatePseudoConsole(COORD{ 32, 16 }, inputReadSide, outputWriteSide, 0, & hPC);
+    HRESULT hr = CreatePseudoConsole(m_buffer_manager.get_coord(), inputReadSide, outputWriteSide, 0, &hPC);
     assert(SUCCEEDED(hr));
     STARTUPINFOEXW si;
     PrepareStartupInformation(hPC, &si);
-    SetUpPseudoConsole(si, COORD{ 32, 16 });
+    SetUpPseudoConsole(si, m_buffer_manager.get_coord());
     //auto shell = std::make_unique<process>("Debug/sh.exe", write_pipe_handle);
     auto read_pipe = std::make_unique<boost::asio::readable_pipe>(executor, outputReadSide);
 
