@@ -16,7 +16,7 @@ namespace Linux{
         }
         else {
             dup2(out, STDOUT_FILENO);
-            execl(path.c_str(), path.c_str());
+            execl(path.c_str(), path.c_str(), NULL);
         }
     }
     class process{
@@ -26,7 +26,7 @@ namespace Linux{
             }
             else {
                 dup2(out, STDOUT_FILENO);
-                execl(path.c_str(), path.c_str());
+                execl(path.c_str(), path.c_str(), NULL);
             }
         }
     };

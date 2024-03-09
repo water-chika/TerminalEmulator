@@ -190,7 +190,7 @@ public:
         terminal_sequence_lexer lexer;
     };
     auto [read_pipe_handle, write_pipe_handle] = create_pipe();
-    auto shell = std::make_unique<process>("sh", write_pipe_handle);
+    auto shell = std::make_unique<process>("/bin/sh", write_pipe_handle);
     auto read_pipe = std::make_unique<boost::asio::readable_pipe>(executor, read_pipe_handle);
     pipe_async pipe_async_v{ *this, executor, std::move(read_pipe) };
 
