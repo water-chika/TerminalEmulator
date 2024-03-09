@@ -42,6 +42,7 @@ public:
   window_manager() : window{create_window()} {
     window_map.emplace(window, this);
     glfwSetCharCallback(window, character_callback);
+    glfwSetKeyCallback(window, key_callback);
   }
   auto get_window() { return window; }
   auto create_surface(vk::Instance instance) {
@@ -59,6 +60,14 @@ public:
     auto manager = window_map[window];
     manager->process_character(codepoint);
   }
+  static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+      auto manager = window_map[window];
+      if (action == GLFW_PRESS) {
+          if (key == GLFW_KEY_ENTER) {
+              manager->process_character('\n');
+          }
+      }
+  }
   run_result run() {
     glfwPollEvents();
     return glfwWindowShouldClose(window) ? run_result::eBreak
@@ -67,7 +76,7 @@ public:
 
 private:
   static GLFWwindow *create_window() {
-    uint32_t width = 1024, height = 1024;
+    uint32_t width = 1920, height = 1024;
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     return glfwCreateWindow(width, height, "Terminal Emulator", nullptr,
                             nullptr);
@@ -81,6 +90,9 @@ std::map<GLFWwindow *, window_manager *> window_manager::window_map;
 
 class terminal_buffer_manager {
 public:
+    terminal_buffer_manager() :
+        m_buffer{ 82, 32 }
+    {}
   auto &get_buffer() { return m_buffer; }
   void append_string(const std::string &str) {
     auto line_begin = str.begin();
@@ -100,9 +112,8 @@ public:
     new_line();
   }
   void new_line() {
-    auto &[x, y] = m_cursor_pos;
     auto leave_size = m_buffer.get_dim0_size() - m_cursor_pos.first;
-    auto current_pos = y * 32 + x;
+    auto current_pos = m_buffer.get_linear_index(m_cursor_pos);
     std::for_each(m_buffer.begin() + current_pos,
                   m_buffer.begin() + current_pos + leave_size,
                   [](auto &c) { c = ' '; });
@@ -110,8 +121,7 @@ public:
     m_cursor_pos.first = 0;
   }
   void append_str_data(const std::string_view str) {
-    auto &[x, y] = m_cursor_pos;
-    auto current_pos = y * 32 + x;
+    auto current_pos = m_buffer.get_linear_index(m_cursor_pos);
     assert(m_buffer.size() > current_pos);
     auto leave_size = m_buffer.size() - current_pos;
     auto count = std::min(str.size(), leave_size);
@@ -120,6 +130,8 @@ public:
       auto count = str.size() - leave_size;
       std::copy(str.begin() + leave_size, str.end(), m_buffer.begin());
     }
+
+    auto& [x, y] = m_cursor_pos;
     x += str.size();
     y += x / m_buffer.get_dim0_size();
     x %= m_buffer.get_dim0_size();
@@ -127,7 +139,7 @@ public:
   }
 
 private:
-  multidimention_array<char, 32, 16> m_buffer;
+  multidimention_vector<char> m_buffer;
   std::pair<int, int> m_cursor_pos;
 };
 
@@ -161,6 +173,20 @@ public:
             async_read();
         }
         void process_text(std::size_t count) {
+            std::vector<char> text;
+            
+            for (int i = 0; i < count; i++) {
+                char c = (*buf)[i];
+                if (c == 0x1b) {
+                    in_escape = true;
+                }
+                else if (in_escape) {
+                    in_escape = false;
+                }
+                else if (!in_escape) {
+                    text.push_back(c);
+                }
+            }
             emulator.m_buffer_manager.append_string(
                 std::string{ buf->data(), count });
             emulator.m_render.notify_update();
@@ -176,6 +202,7 @@ public:
         terminal_emulator& emulator;
         std::unique_ptr<boost::asio::readable_pipe> read_pipe;
         std::unique_ptr<std::array<char, 128>> buf;
+        bool in_escape = false;
     };
     auto input_pipe_name = generate_random_pipe_name();
     auto inputReadSide = create_named_pipe(input_pipe_name);

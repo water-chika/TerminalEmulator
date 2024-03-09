@@ -213,7 +213,7 @@ public:
         return char_texture_indices;
     }
     auto generate_char_indices_buf(auto& terminal_buffer, auto& char_texture_indices) {
-        multidimention_array<uint32_t, 32, 16> char_indices_buf{};
+        multidimention_vector<uint32_t> char_indices_buf{terminal_buffer.get_width(), terminal_buffer.get_height()};
         std::transform(
             terminal_buffer.begin(),
             terminal_buffer.end(),
@@ -392,7 +392,7 @@ public:
     }
 
 protected:
-    multidimention_array<char, 32, 16>* p_terminal_buffer;
+    multidimention_vector<char>* p_terminal_buffer;
     vk::SharedPhysicalDevice physical_device;
     vk::SharedDevice device;
     vk::SharedCommandPool command_pool;
@@ -406,7 +406,7 @@ protected:
     vk::SharedImage texture;
     vk::SharedImageView texture_view;
     vk::SharedDeviceMemory texture_memory;
-    multidimention_array<uint32_t, 32, 16> char_indices;
+    multidimention_vector<uint32_t> char_indices;
     vk::SharedBuffer char_indices_buffer;
     vk::SharedDeviceMemory char_indices_buffer_memory;
     vk::UniqueSampler sampler;
