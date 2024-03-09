@@ -1,3 +1,5 @@
+#define _WIN32_WINNT 0x0A00
+
 #include "boost/asio.hpp"
 #include "font_loader.hpp"
 #include "vulkan_render.hpp"
@@ -15,10 +17,14 @@
 #include <strstream>
 #include <thread>
 #include <utility>
+#include <fstream>
 
 #include "multidimention_array.hpp"
 #include "named_pipe.hpp"
 #include "run_result.hpp"
+#include "terminal_sequence_lexer.hpp"
+
+#include <ConsoleApi.h>
 
 struct glfwContext {
   glfwContext() {
@@ -37,6 +43,7 @@ public:
   window_manager() : window{create_window()} {
     window_map.emplace(window, this);
     glfwSetCharCallback(window, character_callback);
+    glfwSetKeyCallback(window, key_callback);
   }
   auto get_window() { return window; }
   auto create_surface(vk::Instance instance) {
@@ -44,14 +51,23 @@ public:
     auto res = glfwCreateWindowSurface(instance, window, NULL, &surface);
     return surface;
   }
-  void set_process_character_fun(auto &&fun) { process_character_fun = fun; }
+  void set_process_character_fun(auto&& fun) {
+      process_character_fun = std::move(fun);
+  }
   void process_character(uint32_t codepoint) {
-    std::cout << codepoint;
     process_character_fun(codepoint);
   }
   static void character_callback(GLFWwindow *window, unsigned int codepoint) {
     auto manager = window_map[window];
     manager->process_character(codepoint);
+  }
+  static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+      auto manager = window_map[window];
+      if (action == GLFW_PRESS) {
+          if (key == GLFW_KEY_ENTER) {
+              manager->process_character('\n');
+          }
+      }
   }
   run_result run() {
     glfwPollEvents();
@@ -61,7 +77,7 @@ public:
 
 private:
   static GLFWwindow *create_window() {
-    uint32_t width = 1024, height = 1024;
+    uint32_t width = 1920, height = 1024;
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     return glfwCreateWindow(width, height, "Terminal Emulator", nullptr,
                             nullptr);
@@ -75,6 +91,9 @@ std::map<GLFWwindow *, window_manager *> window_manager::window_map;
 
 class terminal_buffer_manager {
 public:
+    terminal_buffer_manager() :
+        m_buffer{ 82, 32 }
+    {}
   auto &get_buffer() { return m_buffer; }
   void append_string(const std::string &str) {
     auto line_begin = str.begin();
@@ -94,9 +113,8 @@ public:
     new_line();
   }
   void new_line() {
-    auto &[x, y] = m_cursor_pos;
     auto leave_size = m_buffer.get_dim0_size() - m_cursor_pos.first;
-    auto current_pos = y * 32 + x;
+    auto current_pos = m_buffer.get_linear_index(m_cursor_pos);
     std::for_each(m_buffer.begin() + current_pos,
                   m_buffer.begin() + current_pos + leave_size,
                   [](auto &c) { c = ' '; });
@@ -104,8 +122,7 @@ public:
     m_cursor_pos.first = 0;
   }
   void append_str_data(const std::string_view str) {
-    auto &[x, y] = m_cursor_pos;
-    auto current_pos = y * 32 + x;
+    auto current_pos = m_buffer.get_linear_index(m_cursor_pos);
     assert(m_buffer.size() > current_pos);
     auto leave_size = m_buffer.size() - current_pos;
     auto count = std::min(str.size(), leave_size);
@@ -114,14 +131,21 @@ public:
       auto count = str.size() - leave_size;
       std::copy(str.begin() + leave_size, str.end(), m_buffer.begin());
     }
+
+    auto& [x, y] = m_cursor_pos;
     x += str.size();
     y += x / m_buffer.get_dim0_size();
     x %= m_buffer.get_dim0_size();
     y %= m_buffer.get_dim1_size();
   }
 
+  COORD get_coord() {
+      return COORD{ static_cast<int16_t>(m_buffer.get_width()), 
+          static_cast<int16_t>(m_buffer.get_height()) };
+  }
+
 private:
-  multidimention_array<char, 32, 16> m_buffer;
+  multidimention_vector<char> m_buffer;
   std::pair<int, int> m_cursor_pos;
 };
 
@@ -140,10 +164,11 @@ public:
     using namespace Linux;
     class pipe_async {
     public:
-        pipe_async(terminal_emulator& emulator, boost::asio::io_context& executor, std::unique_ptr<process>&& shell, std::unique_ptr<boost::asio::readable_pipe>&& read_pipe) 
+        pipe_async(terminal_emulator& emulator,
+            boost::asio::io_context& executor,
+            std::unique_ptr<boost::asio::readable_pipe>&& read_pipe) 
             : emulator{emulator},
-            shell{std::move(shell)},
-            read_pipe{std::move(read_pipe)},
+            read_pipe{ std::move(read_pipe) }, lexer{},
             buf{std::make_unique<std::array<char, 128>>()}
         {
             async_read();
@@ -154,8 +179,9 @@ public:
             async_read();
         }
         void process_text(std::size_t count) {
+            std::vector<char> text = lexer.lex(std::string_view{ &(*buf)[0], count});
             emulator.m_buffer_manager.append_string(
-                std::string{ buf->data(), count });
+                std::string{ text.data(), text.size()});
             emulator.m_render.notify_update();
             emulator.m_render.run();
         }
@@ -167,9 +193,10 @@ public:
         }
     private:
         terminal_emulator& emulator;
-        std::unique_ptr<process> shell;
         std::unique_ptr<boost::asio::readable_pipe> read_pipe;
         std::unique_ptr<std::array<char, 128>> buf;
+        bool in_escape = false;
+        terminal_sequence_lexer lexer;
     };
     auto [read_pipe_handle, write_pipe_handle] = create_pipe();
     auto shell = std::make_unique<process>("sh", write_pipe_handle);
@@ -204,7 +231,6 @@ public:
     };
     window_run window_run{ *this, executor };
   }
-
 private:
   window_manager m_window_manager;
   renderer_presenter<vertex_renderer> m_render;

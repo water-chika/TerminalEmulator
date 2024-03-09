@@ -22,6 +22,7 @@ target_include_directories(
     PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/linux
+    terminal_sequence_lexer
     )
 target_link_libraries(terminal_emulator PUBLIC vulkan_render glfw Boost::system)
 set_property(TARGET terminal_emulator PROPERTY CXX_STANDARD 23)
