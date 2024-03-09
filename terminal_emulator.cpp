@@ -1,5 +1,3 @@
-#define _WIN32_WINNT 0x0A00
-
 #include "boost/asio.hpp"
 #include "font_loader.hpp"
 #include "vulkan_render.hpp"
@@ -23,8 +21,6 @@
 #include "named_pipe.hpp"
 #include "run_result.hpp"
 #include "terminal_sequence_lexer.hpp"
-
-#include <ConsoleApi.h>
 
 struct glfwContext {
   glfwContext() {
@@ -139,11 +135,6 @@ public:
     y %= m_buffer.get_dim1_size();
   }
 
-  COORD get_coord() {
-      return COORD{ static_cast<int16_t>(m_buffer.get_width()), 
-          static_cast<int16_t>(m_buffer.get_height()) };
-  }
-
 private:
   multidimention_vector<char> m_buffer;
   std::pair<int, int> m_cursor_pos;
@@ -201,7 +192,7 @@ public:
     auto [read_pipe_handle, write_pipe_handle] = create_pipe();
     auto shell = std::make_unique<process>("sh", write_pipe_handle);
     auto read_pipe = std::make_unique<boost::asio::readable_pipe>(executor, read_pipe_handle);
-    pipe_async pipe_async_v{ *this, executor, std::move(shell), std::move(read_pipe) };
+    pipe_async pipe_async_v{ *this, executor, std::move(read_pipe) };
 
     class window_run {
     public:
