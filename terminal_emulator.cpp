@@ -4,7 +4,6 @@
 #include "font_loader.hpp"
 #include "vulkan_render.hpp"
 
-#include <GLFW/glfw3.h>
 
 #undef min
 #include <algorithm>
