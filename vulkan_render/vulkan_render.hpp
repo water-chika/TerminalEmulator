@@ -685,7 +685,7 @@ public:
             std::array<uint32_t, 1> indices{ image_index };
             vk::PresentInfoKHR present_info{ wait_semaphores, swapchains, indices };
             auto res = Renderer::queue->presentKHR(present_info);
-            assert(res == vk::Result::eSuccess);
+            assert(res == vk::Result::eSuccess || res == vk::Result::eSuboptimalKHR);
         }
         return run_result::eContinue;
     }
