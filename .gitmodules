@@ -4,3 +4,6 @@
 [submodule "freetype"]
 	path = freetype
 	url = https://gitlab.freedesktop.org/freetype/freetype.git
+[submodule "dependence_compiler"]
+	path = dependence_compiler
+	url = https://github.com/water-chika/dependence_compiler
