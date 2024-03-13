@@ -25,7 +25,7 @@ target_include_directories(
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
     PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include)
 
-target_link_libraries(vulkan_render PUBLIC Vulkan::Vulkan freetype)
+target_link_libraries(vulkan_render PUBLIC glfw Vulkan::Vulkan freetype)
 set_property(TARGET vulkan_render PROPERTY CXX_STANDARD 23)
 
 function(compile_glsl stage glsl_file spv_file)
