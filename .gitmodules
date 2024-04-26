@@ -7,3 +7,6 @@
 [submodule "dependence_compiler"]
 	path = dependence_compiler
 	url = https://github.com/water-chika/dependence_compiler
+[submodule "vulkan_renderer"]
+	path = vulkan_renderer
+	url = https://github.com/water-chika/terminal_emulator_vulkan_renderer

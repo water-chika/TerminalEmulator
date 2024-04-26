@@ -12,7 +12,7 @@ add_subdirectory(glfw)
 
 add_subdirectory(freetype)
 
-add_subdirectory(vulkan_render)
+add_subdirectory(vulkan_renderer)
 
 add_executable(terminal_emulator
     terminal_emulator.cpp
@@ -24,7 +24,7 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/windows
     terminal_sequence_lexer
     )
-target_link_libraries(terminal_emulator PUBLIC vulkan_render glfw Boost::system)
+target_link_libraries(terminal_emulator PUBLIC vulkan_renderer glfw Boost::system)
 set_property(TARGET terminal_emulator PROPERTY CXX_STANDARD 23)
 
 add_executable(sh sh.cpp)
