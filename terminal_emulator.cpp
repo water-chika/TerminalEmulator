@@ -2,7 +2,7 @@
 
 #include "boost/asio.hpp"
 #include "font_loader.hpp"
-#include "vulkan_render.hpp"
+#include "vulkan_renderer.hpp"
 
 
 #undef min
@@ -17,6 +17,8 @@
 #include <thread>
 #include <utility>
 #include <fstream>
+
+#include <GLFW/glfw3.h>
 
 #include "multidimention_array.hpp"
 #include "named_pipe.hpp"
@@ -146,6 +148,22 @@ public:
 private:
   multidimention_vector<char> m_buffer;
   std::pair<int, int> m_cursor_pos;
+};
+
+class vulkan_instance {
+public:
+  vulkan_instance() {
+      uint32_t count = 0; 
+      auto extensions = glfwGetRequiredInstanceExtensions(&count);
+      std::vector<const char*> enabled_extensions(extensions, extensions+count);
+    auto create_info = vk::InstanceCreateInfo{}.setPEnabledExtensionNames(enabled_extensions);
+    m_instance = vk::SharedInstance{ vk::createInstance(create_info) };
+  }
+  auto get_vulkan_instance() {
+    return m_instance;
+  }
+private:
+  vk::SharedInstance m_instance;
 };
 
 using namespace std::literals;
@@ -333,7 +351,7 @@ public:
   }
 private:
   window_manager m_window_manager;
-  renderer_presenter<vertex_renderer> m_render;
+  renderer_presenter<vertex_renderer<vulkan_instance>> m_render;
   terminal_buffer_manager m_buffer_manager;
 };
 

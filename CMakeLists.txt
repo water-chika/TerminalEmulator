@@ -10,8 +10,6 @@ find_package(Boost 1.70 REQUIRED COMPONENTS system PATHS ${BOOST_PATH})
 
 add_subdirectory(glfw)
 
-add_subdirectory(freetype)
-
 add_subdirectory(vulkan_renderer)
 
 add_executable(terminal_emulator
