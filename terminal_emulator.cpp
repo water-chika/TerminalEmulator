@@ -169,7 +169,10 @@ public:
     m_instance = vk::SharedInstance{ vk::createInstance(create_info) };
   }
   auto get_vulkan_instance() {
-    return m_instance;
+    return *m_instance;
+  }
+  auto get_vulkan_shared_instance() {
+      return m_instance;
   }
 private:
   vk::SharedInstance m_instance;
@@ -360,7 +363,12 @@ public:
   }
 private:
   window_manager m_window_manager;
-  renderer_presenter<vertex_renderer<vulkan_instance>> m_render;
+  renderer_presenter<
+      mesh_renderer<
+      add_shared_device<
+      add_shared_physical_device<
+      vulkan_instance
+      >>>> m_render;
   terminal_buffer_manager m_buffer_manager;
 };
 
