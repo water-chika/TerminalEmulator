@@ -153,10 +153,19 @@ private:
 class vulkan_instance {
 public:
   vulkan_instance() {
+      auto application_info = vk::ApplicationInfo{}.setPApplicationName("Terminal Emulator").setApiVersion(vk::ApiVersion13);
       uint32_t count = 0; 
       auto extensions = glfwGetRequiredInstanceExtensions(&count);
       std::vector<const char*> enabled_extensions(extensions, extensions+count);
-    auto create_info = vk::InstanceCreateInfo{}.setPEnabledExtensionNames(enabled_extensions);
+      auto required_extensions = std::array{
+          vk::KHRGetPhysicalDeviceProperties2ExtensionName,
+      };
+      std::ranges::for_each(required_extensions,
+          [&enabled_extensions](auto& ext){
+              enabled_extensions.push_back(ext);
+          }
+      );
+    auto create_info = vk::InstanceCreateInfo{}.setPEnabledExtensionNames(enabled_extensions).setPApplicationInfo(&application_info);
     m_instance = vk::SharedInstance{ vk::createInstance(create_info) };
   }
   auto get_vulkan_instance() {
