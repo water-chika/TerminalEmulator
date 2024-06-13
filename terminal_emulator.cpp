@@ -407,9 +407,15 @@ public:
       // ...
   }
 private:
+using mesh_pass = 
   renderer_presenter<
-      vertex_renderer<
+      mesh_renderer<
       add_shared_device<
+      add_mesh_device_create_info_aggregate<
+      set_queue_family_index<
+      add_mesh_extension<
+      vulkan_hpp_helper::add_swapchain_extension<
+      vulkan_hpp_helper::add_empty_extensions<
       add_shared_physical_device<
       add_shared_vulkan_surface<
       add_glfw_vulkan_surface<
@@ -418,7 +424,25 @@ private:
       add_glfw_error_print<
       add_glfw_library<
       none_t
-      >>>>>>>>>> m_render;
+      >>>>>>>>>>>>>>>;
+using vertex_pass =
+renderer_presenter<
+    vertex_renderer<
+    add_shared_device<
+    add_vertex_device_create_info_aggregate<
+    set_queue_family_index<
+    vulkan_hpp_helper::add_swapchain_extension<
+    vulkan_hpp_helper::add_empty_extensions<
+    add_shared_physical_device<
+    add_shared_vulkan_surface<
+    add_glfw_vulkan_surface<
+    window_manager<
+    vulkan_instance<
+    add_glfw_error_print<
+    add_glfw_library<
+    none_t
+    >>>>>>>>>>>>>>;
+      vertex_pass m_render;
   terminal_buffer_manager m_buffer_manager;
 };
 
