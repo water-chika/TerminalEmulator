@@ -27,31 +27,78 @@
 
 #include <ConsoleApi.h>
 
-struct glfwContext {
-  glfwContext() {
-    glfwInit();
-    glfwSetErrorCallback([](int error, const char *msg) {
-      std::cerr << "glfw: "
+template<class T>
+class add_glfw_error_print : public T {
+public:
+    add_glfw_error_print() {
+        glfwSetErrorCallback([](int error, const char* msg) {
+            std::cerr << "glfw: "
                 << "(" << error << ") " << msg << std::endl;
-    });
-    assert(GLFW_TRUE == glfwVulkanSupported());
-  }
-  ~glfwContext() { glfwTerminate(); }
+            });
+    }
 };
 
-class window_manager {
+
+template<class T>
+class add_shared_vulkan_surface : public T {
 public:
+    using parent = T;
+    add_shared_vulkan_surface() {
+        m_surface = vk::SharedSurfaceKHR{ parent::get_vulkan_surface(), parent::get_vulkan_shared_instance() };
+    }
+    auto get_vulkan_shared_surface() {
+        return m_surface;
+    }
+private:
+    vk::SharedSurfaceKHR m_surface;
+};
+
+template<class T>
+class add_glfw_vulkan_surface : public T {
+public:
+    using parent = T;
+    add_glfw_vulkan_surface() {
+        auto instance = parent::get_vulkan_instance();
+        auto window = parent::get_glfw_window();
+        VkSurfaceKHR surface{};
+        auto res = glfwCreateWindowSurface(instance, window, NULL, &surface);
+        if (res != VK_SUCCESS) {
+            throw std::runtime_error{ "glfwCreateWindowSurface failed" };
+        }
+        m_surface = surface;
+    }
+    auto get_vulkan_surface() {
+        return m_surface;
+    }
+private:
+    vk::SurfaceKHR m_surface;
+};
+
+template<class T>
+class add_glfw_library : public T {
+public:
+    using parent = T;
+    add_glfw_library() {
+        int ret = glfwInit();
+        if (ret != GLFW_TRUE) {
+            throw std::runtime_error{ "glfwInit failed" };
+        }
+    }
+    ~add_glfw_library() {
+        glfwTerminate();
+    }
+};
+
+template<class T>
+class window_manager : public T {
+public:
+  using parent = T;
   window_manager() : window{create_window()} {
     window_map.emplace(window, this);
     glfwSetCharCallback(window, character_callback);
     glfwSetKeyCallback(window, key_callback);
   }
-  auto get_window() { return window; }
-  auto create_surface(vk::Instance instance) {
-    VkSurfaceKHR surface{};
-    auto res = glfwCreateWindowSurface(instance, window, NULL, &surface);
-    return surface;
-  }
+  auto get_glfw_window() { return window; }
   void set_process_character_fun(auto&& fun) {
       process_character_fun = std::move(fun);
   }
@@ -70,7 +117,7 @@ public:
           }
       }
   }
-  run_result run() {
+  run_result process_window_events() {
     glfwPollEvents();
     return glfwWindowShouldClose(window) ? run_result::eBreak
                                          : run_result::eContinue;
@@ -83,12 +130,10 @@ private:
     return glfwCreateWindow(width, height, "Terminal Emulator", nullptr,
                             nullptr);
   }
-  glfwContext glfw_context;
   GLFWwindow *window;
-  static std::map<GLFWwindow *, window_manager *> window_map;
+  inline static std::map<GLFWwindow *, window_manager *> window_map; // C++17 inline static variable.
   std::function<void(uint32_t)> process_character_fun;
 };
-std::map<GLFWwindow *, window_manager *> window_manager::window_map;
 
 class terminal_buffer_manager {
 public:
@@ -150,7 +195,8 @@ private:
   std::pair<int, int> m_cursor_pos;
 };
 
-class vulkan_instance {
+template<class T>
+class vulkan_instance : public T {
 public:
   vulkan_instance() {
       auto application_info = vk::ApplicationInfo{}.setPApplicationName("Terminal Emulator").setApiVersion(vk::ApiVersion13);
@@ -178,14 +224,13 @@ private:
   vk::SharedInstance m_instance;
 };
 
+class none_t {};
+
 using namespace std::literals;
 class terminal_emulator {
 public:
-  terminal_emulator(boost::asio::io_context& executor) : m_window_manager{}, m_render{}, m_buffer_manager{} {
+  terminal_emulator(boost::asio::io_context& executor) : m_render{}, m_buffer_manager{} {
     m_render.init(
-        [this](vk::Instance instance) {
-          return m_window_manager.create_surface(instance);
-        },
         m_buffer_manager.get_buffer());
     m_render.notify_update();
 
@@ -242,7 +287,7 @@ public:
 
     auto write_buf = std::make_shared<std::array<char, 10>>();
 
-    m_window_manager.set_process_character_fun(
+    m_render.set_process_character_fun(
         [inputWriteSide]
         (auto codepoint) mutable {
             auto& out = *inputWriteSide;
@@ -262,7 +307,7 @@ public:
             async_run();
         }
         void operator()(const boost::system::error_code& err) {
-            if (emulator.m_window_manager.run() == run_result::eContinue) {
+            if (emulator.m_render.process_window_events() == run_result::eContinue) {
                 async_run();
             }
             else {
@@ -362,13 +407,18 @@ public:
       // ...
   }
 private:
-  window_manager m_window_manager;
   renderer_presenter<
-      mesh_renderer<
+      vertex_renderer<
       add_shared_device<
       add_shared_physical_device<
-      vulkan_instance
-      >>>> m_render;
+      add_shared_vulkan_surface<
+      add_glfw_vulkan_surface<
+      window_manager<
+      vulkan_instance<
+      add_glfw_error_print<
+      add_glfw_library<
+      none_t
+      >>>>>>>>>> m_render;
   terminal_buffer_manager m_buffer_manager;
 };
 
