@@ -6,7 +6,7 @@ find_package(Vulkan REQUIRED)
 
 set(BOOST_PATH "boost/stage/" CACHE PATH
     "boost library path")
-find_package(Boost 1.70 REQUIRED COMPONENTS system PATHS ${BOOST_PATH})
+#find_package(Boost 1.70 REQUIRED COMPONENTS system PATHS ${BOOST_PATH})
 
 add_subdirectory(glfw)
 
@@ -22,7 +22,9 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/windows
     terminal_sequence_lexer
     )
-target_link_libraries(terminal_emulator PUBLIC vulkan_renderer glfw Boost::system)
+target_link_libraries(terminal_emulator PUBLIC vulkan_renderer glfw
+#	Boost::system
+)
 set_property(TARGET terminal_emulator PROPERTY CXX_STANDARD 23)
 
 add_executable(sh sh.cpp)
