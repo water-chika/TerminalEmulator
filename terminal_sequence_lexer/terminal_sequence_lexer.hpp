@@ -10,11 +10,13 @@ enum class lex_type : uint8_t{
     new_line,
     return_,
     table,
+    backspace,
+    alarm,
 };
 
 struct lex_result {
     lex_type t;
-    uint8_t value;
+    uint32_t value;
 };
 
 class terminal_sequence_lexer {
@@ -36,6 +38,18 @@ public:
             else if (c == '\t') {
                 state = 0;
                 return {lex_type::table, 0};
+            }
+            else if (c == '\b') {
+                state = 0;
+                return {lex_type::backspace, 0};
+            }
+            else if (c == '\a') {
+                state = 0;
+                return {lex_type::alarm, 0};
+            }
+            else if ((c & 0b11110000) == 0b11100000) {
+                state = 0b11100000;
+                value = (c & 0b00001111) << 12;
             }
             else {
                 state = 0;
@@ -105,6 +119,15 @@ public:
                 state = 0;
             }
             break;
+            case 0b11100000:
+            value |= (c & 0b00111111) << 6;
+            state = 0b11100001;
+            break;
+            case 0b11100001:
+            value |= (c & 0b00111111);
+            state = 0;
+            return {lex_type::character, value};
+            break;
         }
         return {lex_type::none, 0};
     }
@@ -120,4 +143,5 @@ public:
     }
 private:
     int state;
+    uint32_t value;
 };

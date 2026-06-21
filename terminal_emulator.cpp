@@ -123,6 +123,12 @@ public:
           if (key == GLFW_KEY_ENTER) {
               manager->process_character('\n');
           }
+          else if (key == GLFW_KEY_BACKSPACE) {
+              manager->process_character('\b');
+          }
+          else if (key == GLFW_KEY_TAB) {
+              manager->process_character('\t');
+          }
       }
   }
   run_result process_window_events() {
@@ -155,7 +161,7 @@ public:
                   [](auto &c) { c = ' '; });
     m_cursor_pos = {0,0};
   }
-  void putc(char c) {
+  void putc(uint32_t c) {
       m_buffer[m_cursor_pos] = c;
       auto& [x, y] = m_cursor_pos;
       x += 1;
@@ -170,6 +176,11 @@ public:
   void table_indent() {
       auto& [x, y] = m_cursor_pos;
       x = x/8*8+8;
+  }
+  void backspace() {
+      auto& [x, y] = m_cursor_pos;
+      if (x > 0)--x;
+      m_buffer[m_cursor_pos] = ' ';
   }
   void append_string(const std::string &str) {
     auto line_begin = str.begin();
@@ -222,7 +233,7 @@ public:
 #endif
 
 private:
-  multidimention_vector<char> m_buffer;
+  multidimention_vector<uint32_t> m_buffer;
   std::pair<int, int> m_cursor_pos;
 };
 
@@ -288,7 +299,8 @@ public:
                     if (!isprint(lr.value)) {
                         std::cout << "not printable character:" << (int)lr.value << std::endl;
                     }
-                    emulator.m_buffer_manager.putc(static_cast<char>(lr.value));
+                    std::cout << lr.value << std::endl;
+                    emulator.m_buffer_manager.putc(lr.value);
                 }
                 else if (lr.t == lex_type::clear) {
                     emulator.m_buffer_manager.clear();
@@ -301,6 +313,15 @@ public:
                 }
                 else if (lr.t == lex_type::table) {
                     emulator.m_buffer_manager.table_indent();
+                }
+                else if (lr.t == lex_type::backspace) {
+                    emulator.m_buffer_manager.backspace();
+                }
+                else if (lr.t == lex_type::alarm) {
+                    //TODO - process alarm
+                }
+                else {
+                    std::cerr << "not processed lex type" << std::endl;
                 }
             }
             emulator.m_render.notify_update();
